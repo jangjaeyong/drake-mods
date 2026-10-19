@@ -282,7 +282,7 @@ async function compile($: EngineInterface, id: number, home: string, gradleArgs:
     INIT_SCRIPT,
     TASK,
   ])
-  note($, `$ ${argv.join(' ')}`)
+  note($, `$ ${argv.map(maskSecret).join(' ')}`)
   note($, `java: ${javaExe(home, rt.isWindows)}`)
   void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {}) // follow the log until the person scrolls
   if (id !== rt.run) return false
@@ -460,9 +460,9 @@ function unescapeXml(text: string) {
     .replace(/&amp;/g, '&')
 }
 
-// A secret in a -D option is not written to the log: -Dsome.password=x shows as -Dsome.password=****.
+// A secret in a -D or -P option is not written to the log: -Dsome.password=x shows as -Dsome.password=****.
 export function maskSecret(arg: string): string {
-  return arg.replace(/^(-D[^=]*(password|passwd|secret|token|credential)[^=]*=).+$/i, '$1****')
+  return arg.replace(/^(-[DP][^=]*(password|passwd|secret|token|credential)[^=]*=).+$/i, '$1****')
 }
 
 // The JDK a setting names, for JAVA_HOME: a path to its java is taken back to the JDK's root.

@@ -12,6 +12,7 @@ const WORKSPACE = `<?xml version="1.0" encoding="UTF-8"?>
     </configuration>
     <configuration name="DemoApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
       <option name="ACTIVE_PROFILES" value="local" />
+      <module name="demo.main" />
       <option name="SPRING_BOOT_MAIN_CLASS" value="com.example.DemoApplication" />
       <option name="VM_PARAMETERS" value="-Dapp.key.password=s3cr3t -Dfile.encoding=&quot;UTF-8&quot; -Xmx1g" />
       <method v="2"><option name="Make" enabled="true" /></method>
@@ -137,6 +138,7 @@ describe('the pieces', () => {
   test('keeps secrets in -D options out of the log', async () => {
     expect(maskSecret('-Djasypt.encryptor.password=abc')).toBe('-Djasypt.encryptor.password=****')
     expect(maskSecret('-Dapi.token=xyz')).toBe('-Dapi.token=****')
+    expect(maskSecret('-PnexusPassword=x')).toBe('-PnexusPassword=****') // a Gradle property in Gradle args
     expect(maskSecret('-Dfile.encoding=UTF-8')).toBe('-Dfile.encoding=UTF-8')
     expect(maskSecret('-Xmx1g')).toBe('-Xmx1g')
   })
