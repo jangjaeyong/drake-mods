@@ -89,6 +89,7 @@ With summaries on, a small model (Haiku) is called once after each turn you type
 - Changing the summary option reloads the mod: change it between turns (a turn running at that moment may lose its summary).
 - It does what [where-am-i](https://github.com/hamzafer/claude-code-mods/tree/main/mods/where-am-i) does; with both on, summaries are made twice. Keep one.
 - Light on your computer: nothing animates (the hourglass stands still), and the only timer, every 3 seconds, asks after the agents only while there are any and redraws only while one runs.
+- Kept for a resume: as each turn ends, the list (the latest 100 prompts) and the recap on top are saved by session in this plugin's own JSON file under your Claude Code folder (`~/.claude`), never sent anywhere. `claude --resume` or `--continue` brings them back at start; `/resume` inside Claude Code brings them back at your first prompt there. Only the latest 10 sessions are kept, the older ones deleted, and of each prompt its latest 10 follow-ups, so the file stays small (around 1 MB at most in typical use). A prompt still at work when you left shows `(interrupted)`. Clear forgets the session's saved list too; `/clear` does not, so a `/resume` back to that conversation brings it back.
 - Agents only for now: background shell commands are not listed, as the engine gives no structured word of when one ends.
 
 ### boot-console
@@ -211,6 +212,7 @@ claude plugin install <mod> --marketplace jangjaeyong/drake-mods
 - 요약 켜기/끄기는 mod 를 다시 불러오므로 턴과 턴 사이에 바꾼다(도는 중에 바꾸면 그 턴 요약이 빠질 수 있다).
 - [where-am-i](https://github.com/hamzafer/claude-code-mods/tree/main/mods/where-am-i) 와 같은 일을 하므로 둘 다 켜면 요약 호출이 두 번 나간다. 하나만 켠다.
 - 컴퓨터에 부담이 없게: 움직이는 애니메이션이 없고(모래시계는 멈춘 아이콘), 하나뿐인 3초 타이머는 에이전트가 있을 때만 상태를 묻고 실행 중일 때만 다시 그린다.
+- resume 시 복원: 턴이 끝날 때마다 목록(최근 질문 100개)과 위쪽 요약을 세션별로 이 mod 전용 JSON 파일(Claude Code 폴더 `~/.claude` 아래)에 저장한다. 다른 곳으로 보내지 않는다. `claude --resume`·`--continue` 는 시작할 때, Claude Code 안의 `/resume` 은 그 세션에서 첫 질문을 보낼 때 되살린다. 최근 세션 10개만 남기고 오래된 것은 지우며, 질문마다 덧붙인 말은 최근 10개까지만 저장해 파일이 작게 유지된다(보통 1 MB 안팎). 나갈 때 처리 중이던 질문은 `(interrupted)` 로 보인다. Clear 하면 그 세션의 저장본도 지운다. `/clear` 는 지우지 않아 그 대화로 `/resume` 하면 돌아온다.
 - 지금은 에이전트만: 백그라운드 셸 명령은 엔진이 끝났다는 신호를 구조화된 형태로 주지 않아 목록에 넣지 않는다.
 
 ### boot-console

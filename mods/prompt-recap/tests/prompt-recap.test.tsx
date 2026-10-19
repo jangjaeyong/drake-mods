@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 
 import type { Mounted } from 'claude-code/testing'
-import { addAgent, addFollowUp, addPrompt, attachRecap, cells, clip, completeTurn, describe as label, endAgent, findRow, firstLine, isRunning, lineCount, mergeAgents, modelLabel, parseRecap, pickAgents, rowsFrom, scrolledTop, short, startAgent, startTurn, statusMark, trimAgents } from '../hooks/register'
+import { addAgent, addFollowUp, addPrompt, attachRecap, cells, clip, completeTurn, describe as label, endAgent, findRow, firstLine, isRunning, keepSessions, lineCount, mergeAgents, modelLabel, parseRecap, pickAgents, restored, rowsFrom, scrolledTop, short, startAgent, startTurn, statusMark, toSave, trimAgents } from '../hooks/register'
 import { thumb, topAt } from '../hooks/scrollbar'
 
 const PANE = { component: 'Pane', requestId: 'prompt-recap', props: { title: 'Prompt Recap', isFocused: false, bodyColumns: 80, placement: 'dock' } }
@@ -762,6 +762,164 @@ describe('prompt-recap agents over time', () => {
     expect(await ui.find({ type: 'Text', text: '#3 ' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '#2 ' })).toBeUndefined()
     expect(await ui.find({ type: 'Button', key: 'full' })).toBeUndefined()
+    await ui.unmount()
+  })
+})
+
+describe('the list kept for a resume', () => {
+  test('keeps the latest 10 sessions, the one saved now first', async () => {
+    const index = Array.from({ length: 10 }, (_, i) => ({ id: `s${i}`, savedAt: 100 - i }))
+    const again = keepSessions(index, 's5', 200)
+    expect(again.index.map(one => one.id)).toEqual(['s5', 's0', 's1', 's2', 's3', 's4', 's6', 's7', 's8', 's9'])
+    expect(again.dropped).toEqual([])
+    const added = keepSessions(index, 'new', 200)
+    expect(added.index).toHaveLength(10)
+    expect(added.index[0]).toEqual({ id: 'new', savedAt: 200 })
+    expect(added.dropped).toEqual(['s9'])
+  })
+
+  test('a prompt still at work when the session left comes back cut off', async () => {
+    let list = addPrompt([], 'first')
+    list = completeTurn(startTurn(list, 't1', 'first'), 't1', 'done', 5)
+    list = startTurn(addPrompt(list, 'second'), 't2', 'second')
+    expect(restored(list).map(entry => [entry.isDone, entry.answer, entry.turnId])).toEqual([
+      [true, 'done', ''],
+      [true, '(interrupted)', ''], // their turns are over: none of this run matches them
+    ])
+  })
+
+  test('saves the latest 100 prompts, each with its latest 10 follow-ups', async () => {
+    let list: ReturnType<typeof addPrompt> = []
+    for (let i = 1; i <= 120; i++) list = addPrompt(list, `prompt ${i}`)
+    list = startTurn(list, 't', 'prompt 120')
+    for (let i = 1; i <= 15; i++) list = addFollowUp(list, 't', `more ${i}`)
+    const saved = toSave(list)
+    expect(saved).toHaveLength(100)
+    expect(saved[0]?.prompt).toBe('prompt 21')
+    expect(saved.at(-1)?.followUps).toEqual(Array.from({ length: 10 }, (_, i) => `more ${i + 6}`))
+    expect(list.at(-1)?.followUps).toHaveLength(15) // the pane keeps them all
+  })
+})
+
+describe('prompt-recap across a resume', () => {
+  const ask = async ($: any, text: string, turnId: string) => {
+    await $.prompt.submit({ text, origin: typed, wait: false })
+    await $.turn.start({ text, turnId })
+    await $.turn.complete({ reason: 'answer', answer: `answered ${text}`, durationMs: 1, isAborted: false, turnId })
+    await settle()
+  }
+  const shows = async ($: any, text: string) => {
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE })
+    const found = (await ui.findAll({ type: 'Text' })).some((one: any) => one.text === text)
+    await ui.unmount()
+    return found
+  }
+
+  test('claude --resume starts with the list the session left, the recap on top too', async ($, on) => {
+    engine(on)
+    on('session.id', () => ({ value: 's1' }))
+    const left = completeTurn(startTurn(addPrompt([], 'add a login page'), 't1', 'add a login page'), 't1', 'added it', 5)
+    mock.store(on, {
+      'session:s1': { entries: startTurn(addPrompt(left, 'add a logout button'), 't2', 'add a logout button'), recap: { goal: 'ship login', now: 'added it', waiting: '', next: 'logout' } },
+      sessions: [{ id: 's1', savedAt: 1 }],
+    })
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await settle()
+
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /🎯 Goal: ship login/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '#1 ' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '#2 ' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /✓ \(interrupted\)$/ })).toBeDefined() // #2 was at work
+    expect(await ui.find({ type: 'Text', text: /working…/ })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test('/resume: each session gets its own list back at its first prompt; Clear forgets it', off, async ($, on) => {
+    engine(on)
+    let sid = 's1'
+    on('session.id', () => ({ value: sid }))
+    on('session.end', (_$: any, e: any) => ({ sessionId: e.sessionId }))
+    mock.store(on)
+    const resume = async (to: string) => {
+      await $.session.end({ reason: 'resume', sessionId: sid, resume: { id: sid } } as any)
+      sid = to
+    }
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await settle()
+    await ask($, 'question one', 't1')
+
+    await resume('s2')
+    expect(await shows($, 'question one')).toBe(false) // a resume empties the pane
+    await ask($, 'question two', 't2')
+    expect(await shows($, 'question one')).toBe(false)
+
+    await resume('s1')
+    await ask($, 'question three', 't3')
+    expect(await shows($, 'question one')).toBe(true)
+    expect(await shows($, 'question three')).toBe(true)
+    expect(await shows($, 'question two')).toBe(false)
+
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    await ui.press({ key: 'clear' })
+    await ui.unmount()
+    await settle()
+    await resume('s2')
+    await ask($, 'question four', 't4')
+    expect(await shows($, 'question two')).toBe(true) // s2 kept its own
+    await resume('s1')
+    await ask($, 'question five', 't5')
+    expect(await shows($, 'question one')).toBe(false) // cleared: forgotten
+    expect(await shows($, 'question five')).toBe(true)
+  })
+
+  test('a prompt left at work comes back cut off; a /resume to the same session brings its list back', off, async ($, on) => {
+    engine(on)
+    let sid = 's1'
+    on('session.id', () => ({ value: sid }))
+    on('session.end', (_$: any, e: any) => ({ sessionId: e.sessionId }))
+    mock.store(on)
+    const resume = async (to: string) => {
+      await $.session.end({ reason: 'resume', sessionId: sid, resume: { id: sid } } as any)
+      sid = to
+    }
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await settle()
+    await ask($, 'question one', 't1')
+    await $.prompt.submit({ text: 'question two', origin: typed, wait: false } as any)
+    await $.turn.start({ text: 'question two', turnId: 't2' } as any) // left before it ended
+    await settle()
+
+    await resume('s2')
+    await ask($, 'elsewhere', 'x1')
+    await resume('s1')
+    await ask($, 'question three', 't3')
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect((await ui.findAll({ type: 'Text' })).map(one => one.text).filter(text => /^#\d+ $/.test(text))).toEqual(['#3 ', '#2 ', '#1 '])
+    expect(await ui.find({ type: 'Text', text: /✓ \(interrupted\)$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /✓ answered question three$/ })).toBeDefined()
+    await ui.unmount()
+
+    await resume('s1') // the same one again
+    await ask($, 'question four', 't4')
+    expect(await shows($, 'question one')).toBe(true)
+    expect(await shows($, 'question four')).toBe(true)
+  })
+
+  test('a store that refuses to write never holds a turn back', off, async ($, on) => {
+    engine(on)
+    on('session.id', () => ({ value: 's1' }))
+    on('store.get', () => ({ value: undefined }))
+    on('store.set', () => {
+      throw new Error('over 4 MiB')
+    })
+    on('store.delete', () => ({ value: undefined }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await settle()
+    await ask($, 'question one', 't1')
+    expect(await shows($, 'question one')).toBe(true)
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /✓ answered question one$/ })).toBeDefined()
     await ui.unmount()
   })
 })

@@ -25,6 +25,14 @@ const AGENTS_SHOWN = 5 // the agents the top shows: running first, then the late
 const MAX_ENDED = 50 // the ended agents kept on record
 const TICK_MS = 3000 // how often the agents are checked and elapsed times move on
 const WHEEL_ROWS = 3 // screen lines one wheel tick moves
+const SAVED_SESSIONS = 10 // the latest sessions whose list is kept for a resume
+const SAVED_ENTRIES = 100 // the latest prompts kept of each
+const SAVED_FOLLOW_UPS = 10 // the latest follow-ups kept of each prompt
+const INDEX_KEY = 'sessions' // the saved sessions, latest first
+
+// A session's list as kept in this plugin's store for a resume, and the store's index of them.
+type SavedSession = { entries: RecapEntry[]; recap: SessionRecap | null }
+type SavedIndex = { id: string; savedAt: number }[]
 
 // Held by the host, so they survive a hot reload of this file and a change of the option.
 const entries = atom({ plugin: 'prompt-recap', key: 'entries' } as const, [] as RecapEntry[])
@@ -38,10 +46,11 @@ const tick = atom({ plugin: 'prompt-recap', key: 'tick' } as const, 0)
 // What moves faster than it is worth a write, and the list's scrolling: this module's own.
 const rt = {
   activity: new Map<string, { tools: number; last: string }>(), // per agent, folded into `agents` each tick
-  top: 0, // the first list row on screen, docked; 0 shows the newest prompt
-  listRows: 0, // the rows the list has on screen, as its scrollbar measured them
-  totalRows: 0, // the list's rows, as last drawn
+  top: 0, // the first list line on screen, docked; 0 shows the newest prompt
+  listRows: 0, // the lines the list has on screen, as its scrollbar measured them
+  totalRows: 0, // the list's lines, as last drawn
   isPinned: false, // the pane is docked and held to its height, so its list scrolls here
+  sessionId: '', // the session the list belongs to: another at a prompt is a resume or a /clear
 }
 
 export const register: Register = (on, options) => {
@@ -61,6 +70,11 @@ export const register: Register = (on, options) => {
     // any already at work when this mod loaded.
     $.clock.every(TICK_MS, () => void refreshAgents($).catch(() => {}))
     void refreshAgents($, true).catch(() => {})
+    // `claude --resume` and `--continue` go on under the same session id: its list comes back.
+    void $.session
+      .id()
+      .then(id => restoreSession($, id))
+      .catch(() => {})
     return r
   })
 
@@ -89,6 +103,9 @@ export const register: Register = (on, options) => {
 
   on('prompt.submit', async ($, e, next) => {
     if (!isOwn(e)) return next(e)
+    // A /resume or /clear goes on under another session with no session.start: the first prompt there
+    // brings back the list that session left, if any, before it goes in.
+    await followSession($).catch(() => {})
     if (e.turnId && !e.wait) {
       // Typed while a turn ran: it belongs to that turn. One asked to wait (ctrl+x enter) gets a turn of its own.
       const r = await next(e)
@@ -111,7 +128,10 @@ export const register: Register = (on, options) => {
     if (!e.agentId) {
       log = []
       const list = await update($, entries, all => startTurn(all, e.turnId, e.text))
-      if (list.some(entry => entry.turnId === e.turnId)) await update($, live, () => 'reading your message')
+      if (list.some(entry => entry.turnId === e.turnId)) {
+        await update($, live, () => 'reading your message')
+        void saveSession($).catch(() => {}) // left mid-turn, a resume shows it cut off
+      }
     } else await reviveAgent($, e.agentId).catch(() => {}) // a known agent at work again
     return next(e)
   })
@@ -154,6 +174,7 @@ export const register: Register = (on, options) => {
       const recent = list.slice(-RECENT_PROMPTS).map(one => one.prompt)
       void summarize($, entry, recent, log, e.answer, turnId => turnId === lastTurnId).catch(() => {})
     }
+    void saveSession($).catch(() => {}) // kept for a resume
     return r
   })
 
@@ -172,6 +193,7 @@ export const register: Register = (on, options) => {
     if (args[0] === 'clear') {
       lastTurnId = '' // a summary still on its way is dropped, not shown over the empty list
       await clearAll($)
+      await forgetSession($).catch(() => {}) // a resume brings back nothing either
       return { text: 'Prompt Recap cleared' }
     }
     await $.ui.open({ id: PANE, title: TITLE })
@@ -322,7 +344,9 @@ export const register: Register = (on, options) => {
               dimColor
               onPress={() => {
                 lastTurnId = '' // a summary still on its way is dropped, not shown over the empty list
-                void clearAll($).catch(() => {})
+                void clearAll($)
+                  .then(() => forgetSession($)) // a resume brings back nothing either
+                  .catch(() => {})
               }}
             />
             {tasks.length > 0 && (
@@ -447,6 +471,7 @@ async function summarize(
   if (!parsed) return
   await update($, entries, list => attachRecap(list, entry.turnId, parsed.now, parsed.waiting))
   if (isLatest(entry.turnId)) await update($, recap, () => parsed)
+  await saveSession($) // with its summary
 }
 
 let fullAsked = 0 // which Full recap is the one waited for: a Hide, a Clear or a newer ask drops the others
@@ -808,6 +833,73 @@ async function refreshAgents($: EngineInterface, isFirst = false) {
   const isChanged = JSON.stringify(next) !== JSON.stringify(before)
   if (isChanged) await update($, agents, () => next)
   if (isChanged || next.some(task => isRunning(task.status))) await update($, tick, n => n + 1)
+}
+
+// The list, kept in this plugin's store under the session it belongs to, for a resume: its latest
+// SAVED_ENTRIES prompts and the recap on top. Only the latest SAVED_SESSIONS sessions are kept. An empty
+// list writes nothing: after a /resume or /clear the list is empty until the next prompt, and the session
+// it belonged to keeps its record (only Clear forgets it).
+async function saveSession($: EngineInterface) {
+  const id = rt.sessionId
+  const list = await read($, entries)
+  if (!id || list.length === 0) return
+  // The oldest go before the new one is written, so the store never holds more than its share.
+  const kept = keepSessions(await savedIndex($), id, await $.clock.now())
+  for (const dropped of kept.dropped) await $.store.delete(sessionKey(dropped))
+  await $.store.set(sessionKey(id), { entries: toSave(list), recap: await read($, recap) } satisfies SavedSession)
+  await $.store.set(INDEX_KEY, kept.index)
+}
+
+// What is saved of a list: its latest prompts, each with its latest follow-ups.
+export function toSave(list: RecapEntry[]): RecapEntry[] {
+  return list.slice(-SAVED_ENTRIES).map(entry => ({ ...entry, followUps: entry.followUps.slice(-SAVED_FOLLOW_UPS) }))
+}
+
+// Clear: the session's record goes too.
+async function forgetSession($: EngineInterface) {
+  const id = rt.sessionId
+  if (!id) return
+  await $.store.delete(sessionKey(id))
+  await $.store.set(INDEX_KEY, (await savedIndex($)).filter(one => one.id !== id))
+}
+
+// The session the list belongs to, from now on; and its saved list, when the pane holds none.
+async function restoreSession($: EngineInterface, id: string) {
+  rt.sessionId = id
+  if ((await read($, entries)).length > 0) return // a hot reload: the list is still here
+  const saved = (await $.store.get(sessionKey(id))) as SavedSession | undefined
+  if (!saved?.entries?.length) return
+  rt.top = 0
+  await update($, entries, list => (list.length > 0 ? list : restored(saved.entries)))
+  if (saved.recap) await update($, recap, now => now ?? saved.recap)
+}
+
+// At a prompt: another session than the list's is a /resume or a /clear; an empty list may be a /resume
+// to this same session.
+async function followSession($: EngineInterface) {
+  const id = await $.session.id()
+  if (id !== rt.sessionId || (await read($, entries)).length === 0) await restoreSession($, id)
+}
+
+async function savedIndex($: EngineInterface): Promise<SavedIndex> {
+  const index = await $.store.get(INDEX_KEY)
+  return Array.isArray(index) ? (index as SavedIndex) : []
+}
+
+function sessionKey(id: string) {
+  return `session:${id}`
+}
+
+// The index with this session saved now, latest first, cut to SAVED_SESSIONS; and the ids cut off.
+export function keepSessions(index: SavedIndex, id: string, savedAt: number): { index: SavedIndex; dropped: string[] } {
+  const all = [{ id, savedAt }, ...index.filter(one => one.id !== id)]
+  return { index: all.slice(0, SAVED_SESSIONS), dropped: all.slice(SAVED_SESSIONS).map(one => one.id) }
+}
+
+// A saved list as it comes back: a prompt still at work when the session left was cut off there. Their
+// turns are over, so none is matched by a turn of this run.
+export function restored(list: RecapEntry[]): RecapEntry[] {
+  return list.map(entry => ({ ...entry, turnId: '', isDone: true, answer: entry.isDone ? entry.answer : entry.answer || '(interrupted)' }))
 }
 
 // A known agent that ended is at work again (resumed, or a teammate a message woke).
