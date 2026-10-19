@@ -1,6 +1,8 @@
-import { describe, expect, test } from 'claude-code/testing'
+import { describe, expect, mock, test } from 'claude-code/testing'
 
-import { addFollowUp, addPrompt, attachRecap, clip, completeTurn, describe as label, findRow, firstLine, parseRecap, short, startTurn } from '../hooks/register'
+import type { Mounted } from 'claude-code/testing'
+import { addAgent, addFollowUp, addPrompt, attachRecap, cells, clip, completeTurn, describe as label, endAgent, findRow, firstLine, isRunning, lineCount, mergeAgents, modelLabel, parseRecap, pickAgents, rowsFrom, scrolledTop, short, startAgent, startTurn, statusMark, trimAgents } from '../hooks/register'
+import { thumb, topAt } from '../hooks/scrollbar'
 
 const PANE = { component: 'Pane', requestId: 'prompt-recap', props: { title: 'Prompt Recap', isFocused: false, bodyColumns: 80, placement: 'dock' } }
 const typed = { kind: 'composer' } as const
@@ -19,6 +21,7 @@ function engine(on: any) {
   on('turn.complete', () => ({ text: '' }))
   on('command.register', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
+  return mock.clock(on, { now: 1_000 }) // the agents' tick and their elapsed times
 }
 
 describe('the list', () => {
@@ -155,9 +158,9 @@ describe('prompt-recap', () => {
     expect(await ui.find({ type: 'Text', text: '#2 ' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '#3 ' })).toBeUndefined() // the slash command is not a prompt
     expect(await ui.find({ type: 'Button', key: 'jump:1:1', text: /use the existing form styles/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /→ Added the login page\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /✓ Added the login page\.$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /1m 23s/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /… working/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /working…/ })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'summary', text: 'Summary: off' })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'full' })).toBeDefined() // asked for, so it runs with summaries off too
     expect(await ui.find({ type: 'Button', key: 'clear' })).toBeDefined()
@@ -174,7 +177,7 @@ describe('prompt-recap', () => {
 
     const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
     expect(await ui.find({ type: 'Text', text: '#2 ' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^ {2}\+ / })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /^ {2}↳ / })).toBeUndefined()
     await ui.unmount()
   })
 
@@ -196,10 +199,10 @@ describe('prompt-recap', () => {
     expect(asked[0]).toContain("The person's recent messages, oldest first:\n- 로그인 페이지 추가해줘")
     expect(asked[0]).toContain('Previous goal: none')
     const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
-    expect(await ui.find({ type: 'Text', text: /◆ Goal: 로그인 기능 완성/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /🎯 Goal: 로그인 기능 완성/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /next: 로그아웃 버튼/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /waiting on you: 화면 확인/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /→ 로그인 페이지 추가$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /✓ 로그인 페이지 추가$/ })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'summary', text: 'Summary: on' })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'full' })).toBeDefined()
     await ui.unmount()
@@ -240,10 +243,10 @@ describe('prompt-recap', () => {
     await ask('add a login page', 't1')
 
     let ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
-    expect(await ui.find({ type: 'Text', text: /◆ Goal: ship login/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /🎯 Goal: ship login/ })).toBeDefined()
     await ui.press({ key: 'clear' })
     expect(await ui.find({ type: 'Text', text: /No prompts yet/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /◆ Goal/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /🎯 Goal/ })).toBeUndefined()
     await ui.unmount()
 
     await ask('add a logout button', 't2')
@@ -274,7 +277,7 @@ describe('prompt-recap', () => {
     await settle()
 
     const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
-    expect(await ui.find({ type: 'Text', text: /◆ Goal/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /🎯 Goal/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /No prompts yet/ })).toBeDefined()
     await ui.unmount()
   })
@@ -321,7 +324,7 @@ describe('prompt-recap', () => {
 
     expect((await $.command.run({ command: 'prompt-recap', args: 'summary off' } as any)).text).toBe('Summaries not changed: a managed setting owns it')
     const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
-    expect(await ui.find({ type: 'Text', text: /◆ Goal: keep me/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /🎯 Goal: keep me/ })).toBeDefined()
     await ui.unmount()
   })
 
@@ -346,8 +349,8 @@ describe('prompt-recap', () => {
 
     const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
     expect(await ui.find({ type: 'Text', text: '#2 ' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /→ Added the tests\.$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^ {2}\+ / })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /✓ Added the tests\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^ {2}↳ / })).toBeUndefined()
     await ui.unmount()
   })
 
@@ -369,8 +372,8 @@ describe('prompt-recap', () => {
     await settle()
 
     const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
-    expect(await ui.find({ type: 'Text', text: /◆ Goal: ship login/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /→ added the page$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /🎯 Goal: ship login/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /✓ added the page$/ })).toBeDefined()
     await ui.unmount()
   })
 
@@ -393,9 +396,9 @@ describe('prompt-recap', () => {
     expect(calls).toBe(0)
 
     const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
-    expect(await ui.find({ type: 'Text', text: /→ \(error\)$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /→ \(refused\)$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /→ \(interrupted\)$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /✓ \(error\)$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /✓ \(refused\)$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /✓ \(interrupted\)$/ })).toBeDefined()
     await ui.unmount()
   })
 
@@ -467,6 +470,298 @@ describe('prompt-recap', () => {
 
     const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
     expect(await ui.find({ type: 'Text', text: /No prompts yet/ })).toBeDefined()
+    await ui.unmount()
+  })
+})
+
+describe('the agents and the scrolled list', () => {
+  const task = (over: Record<string, unknown>) => ({ id: 'a1', description: 'review', type: 'general-purpose', model: '', status: 'running', startedAt: 0, endedAt: 0, tools: 0, last: '', ...over }) as any
+
+  test('counts Hangul, CJK and emoji two cells wide, and the lines a text wraps to at its spaces', async () => {
+    expect(cells('abc')).toBe(3)
+    expect(cells('로그인 화면')).toBe(11) // 5 syllables and a space
+    expect(cells('⏳ working…')).toBe(11)
+    expect(cells('🔔 확인')).toBe(7)
+    expect(lineCount('', 10)).toBe(1)
+    expect(lineCount('a'.repeat(10), 10)).toBe(1)
+    expect(lineCount('aaaa bbbb cccc', 10)).toBe(2) // the third word moves down whole
+    expect(lineCount('a'.repeat(25), 10)).toBe(3) // a word longer than a line breaks where it ends
+    expect(lineCount('로그인 페이지 상단 배너 클릭', 10)).toBe(4)
+  })
+
+  test('fills the screen lines from the first row that starts at or after the top line', async () => {
+    const list = Array.from({ length: 10 }, (_, i) => `row ${i}`)
+    const ones = list.map(() => 1)
+    expect(rowsFrom(list, ones, 0, 3)).toEqual(['row 0', 'row 1', 'row 2'])
+    expect(rowsFrom(list, ones, 7, 5)).toEqual(['row 7', 'row 8', 'row 9'])
+    expect(rowsFrom(['x', 'y', 'z'], [3, 1, 1], 0, 2)).toEqual(['x']) // 3 lines already
+    expect(rowsFrom(['x', 'y', 'z'], [3, 1, 1], 1, 2)).toEqual(['y', 'z']) // x starts above line 1
+  })
+
+  test('scrolled to the end, the oldest row is on screen, wide and wrapped rows and all', async () => {
+    const texts = ['#3 한글 질문 하나', '   ✓ 로그인 페이지 상단 배너 클릭 시 상세 팝업이 안 뜨는 문제 수정', '', '#2 짧은 질문', '   ✓ 끝', '', '#1 가장 오래된 질문입니다', '   ✓ 마지막 줄']
+    const lines = texts.map(text => lineCount(text, 20))
+    const total = lines.reduce((sum, n) => sum + n, 0)
+    expect(total).toBeGreaterThan(texts.length) // some wrap
+    const top = scrolledTop(0, 1000, total, 5)
+    const shown = rowsFrom(texts, lines, top, 5)
+    expect(shown.at(-1)).toBe('   ✓ 마지막 줄')
+    expect(shown.reduce((sum, text) => sum + lineCount(text, 20), 0)).toBeLessThanOrEqual(5) // nothing cut by the frame
+  })
+
+  test('scrolls from the newest row down to a screen that ends at the oldest', async () => {
+    expect(scrolledTop(0, 3, 100, 10)).toBe(3)
+    expect(scrolledTop(3, -5, 100, 10)).toBe(0)
+    expect(scrolledTop(80, 50, 100, 10)).toBe(90)
+    expect(scrolledTop(0, 3, 5, 10)).toBe(0) // it all fits
+  })
+
+  test('the scrollbar: a press at the top shows the start, at the bottom the end; the thumb is the share on screen', async () => {
+    expect(topAt(0, 10, 100)).toBe(0)
+    expect(topAt(9, 10, 100)).toBe(90)
+    expect(topAt(20, 10, 100)).toBe(90) // dragged past the edge
+    expect(thumb(10, 100, 0)).toEqual({ start: 0, size: 1 })
+    expect(thumb(10, 100, 90)).toEqual({ start: 9, size: 1 })
+    expect(thumb(10, 20, 0)).toEqual({ start: 0, size: 5 })
+    expect(thumb(10, 8, 0)).toEqual({ start: 0, size: 0 }) // it all fits: no thumb
+  })
+
+  test('marks each agent status, at work with an hourglass, and names its model', async () => {
+    expect(isRunning('running') && isRunning('pending') && isRunning('waiting')).toBe(true)
+    expect(isRunning('idle')).toBe(false) // a teammate between turns: its time stops, nothing redraws for it
+    expect(isRunning('completed') || isRunning('failed') || isRunning('killed')).toBe(false)
+    expect(statusMark('running')).toEqual({ icon: '⏳', color: 'yellow' })
+    expect(statusMark('completed')).toEqual({ icon: '✓', color: 'green' })
+    expect(statusMark('failed')).toEqual({ icon: '✗', color: 'red' })
+    expect(statusMark('killed')).toEqual({ icon: '■', color: 'gray' })
+    expect(modelLabel(task({ model: 'claude-fable-5-1' }))).toBe('fable')
+    expect(modelLabel(task({ model: '', type: 'Explore' }))).toBe('Explore')
+  })
+
+  test('keeps an agent the engine has dropped from its list, as ended, and folds in its activity', async () => {
+    const list = addAgent([], { id: 'a1', description: 'review', type: 'general-purpose', model: 'claude-fable-5-1', startedAt: 100 })
+    expect(addAgent(list, { id: 'a1', description: 'again', type: 't', model: '', startedAt: 999 })).toHaveLength(1)
+    const activity = new Map([['a1', { tools: 7, last: 'reading a.ts' }]])
+    const listed = [{ id: 'a1', description: 'review', type: 'general-purpose', status: 'running' }, { id: 'a2', description: 'explore', type: 'Explore', status: 'running' }] as any
+    const merged = mergeAgents(list, listed, activity, 500)
+    expect(merged.map(t => [t.id, t.status, t.tools, t.last, t.startedAt])).toEqual([
+      ['a1', 'running', 7, 'reading a.ts', 100],
+      ['a2', 'running', 0, '', 500], // one started before the mod loaded joins
+    ])
+    const gone = mergeAgents(merged, [], activity, 900)
+    expect(gone.map(t => [t.id, t.status, t.endedAt])).toEqual([
+      ['a1', 'completed', 900],
+      ['a2', 'completed', 900],
+    ])
+    expect(endAgent(gone, 'a1', 'failed', 1000)[0]).toMatchObject({ status: 'failed', endedAt: 900 }) // its first end stays
+  })
+
+  test('an ended agent stays ended while the list catches up; a finished one the engine still lists does not come back', async () => {
+    const ended = endAgent(addAgent([], { id: 'a1', description: 'review', type: 't', model: '', startedAt: 100 }), 'a1', 'completed', 300)
+    const listed = [{ id: 'a1', description: 'review', type: 't', status: 'running' }, { id: 'old', description: 'cleared', type: 't', status: 'completed' }] as any
+    expect(mergeAgents(ended, listed, new Map(), 400).map(t => [t.id, t.status, t.endedAt])).toEqual([['a1', 'completed', 300]])
+    expect(mergeAgents(ended, [{ ...listed[0], status: 'idle' }], new Map(), 400)[0]).toMatchObject({ status: 'idle', endedAt: 300 })
+  })
+
+  test('a known agent at work again counts its time from the new run; a resumed spawn fills in what it lacked', async () => {
+    const joined = mergeAgents([], [{ id: 'a1', description: 'review', type: 't', status: 'running' }] as any, new Map(), 100)
+    expect(startAgent(joined, 'a1', 500)[0]).toMatchObject({ status: 'running', startedAt: 100 }) // running: untouched
+    const ended = endAgent(joined, 'a1', 'completed', 200)
+    expect(startAgent(ended, 'a1', 500)[0]).toMatchObject({ status: 'running', startedAt: 500, endedAt: 0 })
+    const resumed = addAgent(ended, { id: 'a1', description: 'review', type: 't', model: 'claude-fable-5-1', startedAt: 600 })
+    expect(resumed).toHaveLength(1)
+    expect(resumed[0]).toMatchObject({ status: 'running', startedAt: 600, model: 'claude-fable-5-1' })
+  })
+
+  test('keeps every agent at work and the latest 50 to end', async () => {
+    const list = [
+      ...Array.from({ length: 60 }, (_, i) => ({ id: `done${i}`, description: '', type: 't', model: '', status: 'completed', startedAt: 0, endedAt: i + 1, tools: 0, last: '' })),
+      { id: 'run', description: '', type: 't', model: '', status: 'running', startedAt: 0, endedAt: 0, tools: 0, last: '' },
+    ]
+    const kept = trimAgents(list)
+    expect(kept).toHaveLength(51)
+    expect(kept.some(t => t.id === 'run')).toBe(true)
+    expect(kept.some(t => t.id === 'done0')).toBe(false)
+    expect(kept.some(t => t.id === 'done59')).toBe(true)
+  })
+
+  test('shows running agents first, newest first, then the latest to end, up to a count', async () => {
+    const list = [
+      task({ id: 'old-done', status: 'completed', endedAt: 10 }),
+      task({ id: 'run-old', startedAt: 1 }),
+      task({ id: 'new-done', status: 'failed', endedAt: 50 }),
+      task({ id: 'run-new', startedAt: 5 }),
+    ]
+    const picked = pickAgents(list, 3)
+    expect(picked.shown.map(t => t.id)).toEqual(['run-new', 'run-old', 'new-done'])
+    expect(picked.more).toBe(1)
+  })
+})
+
+describe('prompt-recap agents and layout', () => {
+  test('an agent that starts shows at the top, at work, with its model; when it ends it is done', async ($, on) => {
+    engine(on)
+    on('agent.spawn', () => ({ model: 'claude-fable-5-1', agentId: 'a1' }))
+    on('agent.list', () => ({ value: [{ id: 'a1', description: 'Fable review', type: 'general-purpose', status: 'running' }] }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await $.agent.spawn({ prompt: 'review', description: 'Fable review', subagentType: 'general-purpose' } as any)
+
+    let ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect((await ui.find({ type: 'Button', key: 'agent:a1' }))?.text).toMatch(/^Fable review {2}fable · \d+s · 0 tools$/)
+    expect(await ui.find({ type: 'Text', text: '⏳' })).toBeDefined()
+    expect((await ui.find({ type: 'Button', key: 'agents' }))?.text).toBe('🤖 Agents 1/1 ▴')
+    await ui.unmount()
+
+    await $.turn.complete({ reason: 'answer', answer: 'all good', durationMs: 1, isAborted: false, turnId: 'x', agentId: 'a1' } as any)
+    ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: '✓' })).toBeDefined()
+    expect((await ui.find({ type: 'Button', key: 'agents' }))?.text).toBe('🤖 Agents 0/1 ▴')
+    await ui.unmount()
+  })
+
+  test('pressing an agent opens its transcript; Back goes to the main one; a refusal is said', async ($, on) => {
+    engine(on)
+    const views: unknown[] = []
+    const toasts: string[] = []
+    on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a1' }))
+    on('ui.view', (_$: any, e: any) => (views.push(e), e.agentId === 'gone' ? { deny: 'the tasks list shows no row for it' } : { value: {} }))
+    on('ui.toast', (_$: any, e: any) => (toasts.push(e.text), { value: undefined }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await $.agent.spawn({ prompt: 'look', description: 'Explore code', subagentType: 'Explore' } as any)
+
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    await ui.press({ key: 'agent:a1' })
+    expect(views).toEqual([{ agentId: 'a1' }])
+    await ui.unmount()
+
+    const viewed = { ...PANE, props: { ...PANE.props, view: { agentId: 'a1' } } }
+    const back = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...viewed } as any)
+    expect(await back.find({ type: 'Text', text: '▶' })).toBeDefined() // the row in view
+    await back.press({ key: 'back' })
+    expect(views.at(-1)).toEqual({})
+    await back.unmount()
+    expect(toasts).toEqual([])
+  })
+
+  test('docked: the top stays, the list sits in a frame and scrolls by its scrollbar; the prompt at work is highlighted', async ($, on) => {
+    engine(on)
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    for (let i = 1; i <= 12; i++) {
+      await $.prompt.submit({ text: `question ${i}`, origin: typed, wait: false } as any)
+      await $.turn.start({ text: `question ${i}`, turnId: `t${i}` } as any)
+      if (i < 12) await $.turn.complete({ reason: 'answer', answer: `answer ${i}`, durationMs: 1, isAborted: false, turnId: `t${i}` } as any)
+    }
+
+    const docked = { ...PANE, props: { ...PANE.props, scroll: { offset: 0, bodyRows: 14 } } }
+    const ui = (await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...docked } as any)) as Mounted<'terminal', 'Pane'>
+    expect(((await ui.drawn()) as any).props).toMatchObject({ height: 14, overflow: 'hidden' })
+    expect((await ui.find({ type: 'Box', key: 'list' })) as any).toMatchObject({ props: { borderStyle: 'round' } })
+    expect(await ui.find({ type: 'Text', text: '▌' })).toBeDefined() // #12 is at work
+    expect(await ui.find({ type: 'Text', text: /working…/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '#12 ' })).toBeDefined() // newest first
+    expect(await ui.find({ type: 'Text', text: '#1 ' })).toBeUndefined()
+
+    await ui.resize({ in: 'scrollbar', columns: 1, rows: 10 })
+    await ui.pointer({ in: 'scrollbar', type: 'down', x: 0, y: 9, button: 'left' }) // the bottom: the oldest
+    await ui.pointer({ in: 'scrollbar', type: 'up', x: 0, y: 9, button: 'left' })
+    expect(await ui.find({ type: 'Text', text: '#1 ' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '#12 ' })).toBeUndefined()
+    await ui.unmount()
+  })
+})
+
+describe('prompt-recap agents over time', () => {
+  test('an agent’s tool calls show on the next tick; gone from the engine’s list, it is done', async ($, on) => {
+    const clock = engine(on)
+    let listed: any[] = [{ id: 'a1', description: 'Fable review', type: 'general-purpose', status: 'running' }]
+    on('agent.spawn', () => ({ model: 'claude-fable-5-1', agentId: 'a1' }))
+    on('agent.list', () => ({ value: listed }))
+    on('tool.call', () => ({ result: 'ok' }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await $.agent.spawn({ prompt: 'review', description: 'Fable review', subagentType: 'general-purpose' } as any)
+    await $.tool.call({ tool: 'Read', file_path: '/work/src/a.ts', agentId: 'a1' } as any)
+    await $.tool.call({ tool: 'Read', file_path: '/work/src/login.tsx', agentId: 'a1' } as any)
+    await clock.advance(3_000)
+
+    let ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect((await ui.find({ type: 'Button', key: 'agent:a1' }))?.text).toMatch(/^Fable review {2}fable · 3s · 2 tools$/)
+    expect(await ui.find({ type: 'Text', text: /↳ .*login\.tsx/ })).toBeDefined()
+    await ui.unmount()
+
+    listed = []
+    await clock.advance(3_000)
+    ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: '✓' })).toBeDefined()
+    expect((await ui.find({ type: 'Button', key: 'agents' }))?.text).toBe('🤖 Agents 0/1 ▴')
+    expect(await ui.find({ type: 'Text', text: /↳ .*login\.tsx/ })).toBeUndefined() // the last action shows only at work
+    await ui.unmount()
+  })
+
+  test('Clear and /prompt-recap clear keep the agents at work and drop those done; /clear drops them all', async ($, on) => {
+    engine(on)
+    let n = 0
+    on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: `a${++n}` }))
+    on('agent.list', () => ({ value: [] }))
+    on('session.end', (_$: any, e: any) => ({ sessionId: e.sessionId }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    const spawn =(description: string) => $.agent.spawn({ prompt: 'go', description, subagentType: 'Explore' } as any)
+    const done = (agentId: string) => $.turn.complete({ reason: 'answer', answer: 'ok', durationMs: 1, isAborted: false, turnId: agentId, agentId } as any)
+    await spawn('still at work')
+    await spawn('done first')
+    await done('a2')
+
+    let ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect((await ui.find({ type: 'Button', key: 'agents' }))?.text).toBe('🤖 Agents 1/2 ▴')
+    await ui.press({ key: 'clear' })
+    expect((await ui.find({ type: 'Button', key: 'agents' }))?.text).toBe('🤖 Agents 1/1 ▴')
+    expect(await ui.find({ type: 'Button', key: 'agent:a2' })).toBeUndefined()
+    await ui.unmount()
+
+    await spawn('done next')
+    await done('a3')
+    await $.command.run({ command: 'prompt-recap', args: 'clear' } as any)
+    ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Button', key: 'agent:a1' })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'agent:a3' })).toBeUndefined()
+    await ui.unmount()
+
+    await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as any)
+    ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Button', key: 'agents' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test('an agent that ended and runs again shows at work, its time counted from the new run', async ($, on) => {
+    const clock = engine(on)
+    on('agent.spawn', () => ({ model: 'claude-fable-5-1', agentId: 'a1' }))
+    on('agent.list', () => ({ value: [] }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await $.agent.spawn({ prompt: 'review', description: 'Fable review', subagentType: 'general-purpose' } as any)
+    await $.turn.complete({ reason: 'answer', answer: 'ok', durationMs: 1, isAborted: false, turnId: 'r1', agentId: 'a1' } as any)
+    await clock.advance(60_000)
+    await $.turn.start({ text: 'one more thing', turnId: 'r2', agentId: 'a1' } as any)
+
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect((await ui.find({ type: 'Button', key: 'agents' }))?.text).toBe('🤖 Agents 1/1 ▴')
+    expect((await ui.find({ type: 'Button', key: 'agent:a1' }))?.text).toMatch(/fable · 0s · 0 tools$/)
+    await ui.unmount()
+  })
+
+  test('inline above the prompt: its natural height and the last 3 prompts', async ($, on) => {
+    engine(on)
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    for (let i = 1; i <= 5; i++) {
+      await $.prompt.submit({ text: `question ${i}`, origin: typed, wait: false } as any)
+      await $.turn.start({ text: `question ${i}`, turnId: `t${i}` } as any)
+      await $.turn.complete({ reason: 'answer', answer: `answer ${i}`, durationMs: 1, isAborted: false, turnId: `t${i}` } as any)
+    }
+    const inline = { ...PANE, props: { ...PANE.props, placement: 'inline', scroll: { offset: 0, bodyRows: 14 } } }
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...inline } as any)
+    expect(((await ui.drawn()) as any).props.height).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: '#5 ' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '#3 ' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '#2 ' })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'full' })).toBeUndefined()
     await ui.unmount()
   })
 })

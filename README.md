@@ -10,7 +10,7 @@ Claude Code mods. · Claude Code 용 mod 모음.
 
 | mod | What it does |
 | --- | --- |
-| [prompt-recap](mods/prompt-recap) | A pane beside the chat with your questions, what you added while Claude worked, and how each turn ended, plus the session at a glance: goal, what's happening now, what's waiting on you, next step. Press a question to jump back to it. |
+| [prompt-recap](mods/prompt-recap) | A pane beside the chat with your questions, what you added while Claude worked, and how each turn ended, plus the session at a glance (goal, what's happening now, what's waiting on you, next step) and the background agents at work. Press a question to jump back to it, an agent to watch it. |
 | [boot-console](mods/boot-console) | IntelliJ's Run tab for a Spring Boot app, in a pane: Run, Stop, Restart, Build, with the app's log live. Compiles what changed and starts the main class from the compiled classes, no jar. Profile, JVM options and JDK per project. |
 
 ### Install
@@ -34,38 +34,44 @@ Then `/reload-plugins` or restart.
 Open the pane with `/prompt-recap`. It works the same on any shell (zsh, bash, PowerShell) and OS: it runs no shell commands and reads no files or environment variables.
 
 ```
-◆ Goal: finish the login feature
-  now: editing src/login.tsx
-  next: logout button
-  waiting on you: check the screen
-[ Full recap ] [ Summary: on ] [ Clear ]
-
-#2 add a logout button too
-  … working
-
-#1 add a login page
-  + reuse the existing form styles
-  → login page added with the existing form styles  · 1m 23s
-  ⏳ check the screen
+🎯 Goal: finish the login feature
+  ⏳ now: editing src/login.tsx
+  ⏭ next: logout button
+  🔔 waiting on you: check the screen
+[ 📋 Full recap ] [ Summary: on ] [ 🧹 Clear ] [ 🤖 Agents 1/2 ▴ ]
+ ▌⏳ Fable review of the login code   fable · 3m 12s · 41 tools
+      ↳ reading src/login.tsx
+  ✓ Explore the auth module          Explore · 1m 03s · 12 tools
+╭────────────────────────────────────────────╮
+│▌#2 add a logout button too                █│
+│▌  ⏳ working… · editing src/login.tsx      │
+│                                           │
+│ #1 add a login page                       │
+│   ↳ reuse the existing form styles        │
+│   ✓ login page added  · 1m 23s            │
+│   🔔 check the screen                      │
+╰────────────────────────────────────────────╯
 ```
 
-Top: the session at a glance
+Top: the session at a glance, and the background agents
 
 - `Goal` what you are working toward now, `now` what Claude is doing (live, from its tool calls), `next` the next step, `waiting on you` what Claude needs from you.
-- `Full recap` (`r`): the recent conversation in up to 6 bullets, in the pane. `/prompt-recap recap` does the same. `Hide` (`h`) closes it. It runs whenever you ask, even with summaries off.
+- `Full recap` (`r`): the recent conversation in up to 6 bullets, at the top of the list. `/prompt-recap recap` does the same. `Hide` (`h`) closes it. It runs whenever you ask, even with summaries off.
 - `Summary: on/off` (`s`): turn the automatic summaries on or off.
-- `Clear` (no hotkey, so a stray key never wipes it) or `/prompt-recap clear`: empty the pane; numbering starts over.
+- `Clear` (no hotkey, so a stray key never wipes it) or `/prompt-recap clear`: empty the list; numbering starts over. Agents still at work stay.
+- `Agents running/all`: the background agents of the session (subagents, a review run in the background), running ones first, up to 5: what each is for, its model, how long it has run, its tool calls, and for one at work what it did last. Press one to watch its transcript in the main view; `← Back to main` returns. The button folds the list.
 
-Below: your questions, newest first
+Below: your questions, newest first, in a frame
 
 - `#n` line: a question you sent. Press it to scroll the conversation to it.
-- `+` line: what you added while that turn ran. Press it to scroll to that message. A question you queued with ctrl+x enter (wait its turn) gets its own entry.
-- `→` line: how the turn ended, and how long it took.
-- `⏳` line: what was waiting on you when that turn ended.
+- `↳` line: what you added while that turn ran. Press it to scroll to that message. A question you queued with ctrl+x enter (wait its turn) gets its own entry.
+- The question at work is marked with a yellow bar down its left side, its `⏳ working…` line saying what Claude is doing; a finished one shows `✓` and how the turn ended, with how long it took.
+- `🔔` line: what was waiting on you when that turn ended.
+- Docked on the right, the top stays put and only the list scrolls: the wheel (3 rows a tick), the arrows and PageUp/PageDown (with the pane focused), or the scrollbar on its right, which you click to jump or drag.
 
 #### Turning summaries off
 
-With summaries on, a small model (Haiku) is called once after each turn you typed, whether or not the pane is open (it counts toward your plan's usage). Off, no automatic call is made and the `→` line shows the first line of the reply. Full recap still runs when you press it.
+With summaries on, a small model (Haiku) is called once after each turn you typed, whether or not the pane is open (it counts toward your plan's usage). Off, no automatic call is made and the `✓` line shows the first line of the reply. Full recap still runs when you press it.
 
 - `Summary` button in the pane (`s`)
 - `/prompt-recap summary off` / `/prompt-recap summary on`
@@ -82,6 +88,8 @@ With summaries on, a small model (Haiku) is called once after each turn you type
 - A message you send while a background notification's turn runs may, rarely, get that turn's answer if the turn ended before taking it.
 - Changing the summary option reloads the mod: change it between turns (a turn running at that moment may lose its summary).
 - It does what [where-am-i](https://github.com/hamzafer/claude-code-mods/tree/main/mods/where-am-i) does; with both on, summaries are made twice. Keep one.
+- Light on your computer: nothing animates (the hourglass stands still), and the only timer, every 3 seconds, asks after the agents only while there are any and redraws only while one runs.
+- Agents only for now: background shell commands are not listed, as the engine gives no structured word of when one ends.
 
 ### boot-console
 
@@ -124,7 +132,7 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 
 | mod | 하는 일 |
 | --- | --- |
-| [prompt-recap](mods/prompt-recap) | 내가 한 질문, 작업 중에 덧붙인 말, 턴 결과 요약에 더해 세션의 목표·지금 하는 일·나를 기다리는 것·다음 단계를 오른쪽 창에 모아 보여준다. 질문을 누르면 대화의 그 위치로 이동한다. |
+| [prompt-recap](mods/prompt-recap) | 내가 한 질문, 작업 중에 덧붙인 말, 턴 결과 요약에 더해 세션의 목표·지금 하는 일·나를 기다리는 것·다음 단계, 그리고 일하는 백그라운드 에이전트를 오른쪽 창에 모아 보여준다. 질문을 누르면 그 위치로, 에이전트를 누르면 그 에이전트 화면으로. |
 | [boot-console](mods/boot-console) | Spring Boot 앱용 IntelliJ Run 탭을 창으로: Run, Stop, Restart, Build 와 실시간 로그. jar 없이 바뀐 것만 컴파일하고 컴파일된 클래스에서 main 을 바로 실행한다. 프로필, JVM 옵션, JDK 를 프로젝트별로. |
 
 ### 설치
@@ -148,38 +156,44 @@ claude plugin install <mod> --marketplace jangjaeyong/drake-mods
 `/prompt-recap` 으로 창을 연다. 셸(zsh, bash, PowerShell)이나 OS 와 무관하게 동작한다: 셸 명령, 파일, 환경변수를 쓰지 않는다.
 
 ```
-◆ Goal: 로그인 기능 완성
-  now: editing src/login.tsx
-  next: 로그아웃 버튼
-  waiting on you: 화면 확인
-[ Full recap ] [ Summary: on ] [ Clear ]
-
-#2 로그아웃 버튼도 추가해줘
-  … working
-
-#1 로그인 페이지 추가해줘
-  + 기존 폼 스타일 그대로 써줘
-  → 로그인 페이지 추가, 기존 폼 스타일 적용  · 1m 23s
-  ⏳ 화면 확인
+🎯 Goal: 로그인 기능 완성
+  ⏳ now: editing src/login.tsx
+  ⏭ next: 로그아웃 버튼
+  🔔 waiting on you: 화면 확인
+[ 📋 Full recap ] [ Summary: on ] [ 🧹 Clear ] [ 🤖 Agents 1/2 ▴ ]
+ ▌⏳ 로그인 코드 Fable 리뷰           fable · 3m 12s · 41 tools
+      ↳ reading src/login.tsx
+  ✓ 인증 모듈 탐색                    Explore · 1m 03s · 12 tools
+╭────────────────────────────────────────────╮
+│▌#2 로그아웃 버튼도 추가해줘               █│
+│▌  ⏳ working… · editing src/login.tsx      │
+│                                           │
+│ #1 로그인 페이지 추가해줘                  │
+│   ↳ 기존 폼 스타일 그대로 써줘             │
+│   ✓ 로그인 페이지 추가  · 1m 23s           │
+│   🔔 화면 확인                             │
+╰────────────────────────────────────────────╯
 ```
 
-위쪽: 세션 한눈에 보기
+위쪽: 세션 한눈에 보기와 백그라운드 에이전트
 
 - `Goal` 지금 하고 있는 일의 목표, `now` 지금 하는 일(도구 호출로 실시간), `next` 다음 단계, `waiting on you` 나를 기다리는 것.
-- `Full recap` (`r`): 최근 대화를 6줄 이내로 요약해 창에 보여준다. `/prompt-recap recap` 도 같다. `Hide` (`h`) 로 닫는다. 요약을 꺼도 누르면 동작한다.
+- `Full recap` (`r`): 최근 대화를 6줄 이내로 요약해 목록 맨 위에 보여준다. `/prompt-recap recap` 도 같다. `Hide` (`h`) 로 닫는다. 요약을 꺼도 누르면 동작한다.
 - `Summary: on/off` (`s`): 자동 요약 켜기/끄기.
-- `Clear` (실수로 지워지지 않게 단축키 없음) 또는 `/prompt-recap clear`: 창을 비운다. 번호는 1부터 다시.
+- `Clear` (실수로 지워지지 않게 단축키 없음) 또는 `/prompt-recap clear`: 목록을 비운다. 번호는 1부터 다시. 아직 일하는 에이전트는 남는다.
+- `Agents 실행중/전체`: 세션의 백그라운드 에이전트(서브에이전트, 백그라운드로 돌린 리뷰). 실행 중인 것이 먼저, 최대 5개: 무슨 일인지, 모델, 실행 시간, 도구 호출 수, 일하는 중이면 마지막으로 한 일. 누르면 그 에이전트의 대화를 메인 화면에서 보고, `← Back to main` 으로 돌아온다. 버튼으로 목록을 접는다.
 
-아래쪽: 질문 목록 (최신이 위)
+아래쪽: 질문 목록 (최신이 위), 테두리 안
 
 - `#n` 줄: 내가 보낸 질문. 누르면 대화에서 그 질문 위치로 스크롤한다.
-- `+` 줄: 그 턴이 도는 중에 덧붙인 말. 누르면 그 메시지 위치로 스크롤한다. ctrl+x enter 로 "차례 기다리기" 한 질문은 새 항목이 된다.
-- `→` 줄: 턴 결과 요약과 걸린 시간.
-- `⏳` 줄: 그 턴이 끝나고 나를 기다린 것.
+- `↳` 줄: 그 턴이 도는 중에 덧붙인 말. 누르면 그 메시지 위치로 스크롤한다. ctrl+x enter 로 "차례 기다리기" 한 질문은 새 항목이 된다.
+- 처리 중인 질문은 왼쪽에 노란 막대가 붙고 `⏳ working…` 줄에 지금 하는 일이 나온다. 끝난 질문은 `✓` 와 결과 요약, 걸린 시간.
+- `🔔` 줄: 그 턴이 끝나고 나를 기다린 것.
+- 오른쪽에 붙은 창에서는 위쪽이 고정되고 목록만 스크롤된다: 휠(한 칸 3줄), 화살표, PageUp/PageDown(창에 포커스가 있을 때), 또는 오른쪽 스크롤바(클릭하면 그 위치로, 드래그로 이동).
 
 #### 요약 끄기
 
-요약을 켜 두면 내가 질문한 턴이 끝날 때마다 Haiku 를 한 번 부른다(창을 열지 않아도, 요금제 사용량에 잡힘). 끄면 자동 호출이 없고 `→` 줄에는 답변 첫 줄이 들어간다. Full recap 은 누르면 그때 한 번 호출한다.
+요약을 켜 두면 내가 질문한 턴이 끝날 때마다 Haiku 를 한 번 부른다(창을 열지 않아도, 요금제 사용량에 잡힘). 끄면 자동 호출이 없고 `✓` 줄에는 답변 첫 줄이 들어간다. Full recap 은 누르면 그때 한 번 호출한다.
 
 - 창에서 `Summary` 버튼 (`s`)
 - `/prompt-recap summary off` / `/prompt-recap summary on`
@@ -196,6 +210,8 @@ claude plugin install <mod> --marketplace jangjaeyong/drake-mods
 - 백그라운드 알림 턴이 도는 중에 보낸 말은, 그 턴이 말을 받기 전에 끝나면 드물게 알림 쪽 답변이 붙을 수 있다.
 - 요약 켜기/끄기는 mod 를 다시 불러오므로 턴과 턴 사이에 바꾼다(도는 중에 바꾸면 그 턴 요약이 빠질 수 있다).
 - [where-am-i](https://github.com/hamzafer/claude-code-mods/tree/main/mods/where-am-i) 와 같은 일을 하므로 둘 다 켜면 요약 호출이 두 번 나간다. 하나만 켠다.
+- 컴퓨터에 부담이 없게: 움직이는 애니메이션이 없고(모래시계는 멈춘 아이콘), 하나뿐인 3초 타이머는 에이전트가 있을 때만 상태를 묻고 실행 중일 때만 다시 그린다.
+- 지금은 에이전트만: 백그라운드 셸 명령은 엔진이 끝났다는 신호를 구조화된 형태로 주지 않아 목록에 넣지 않는다.
 
 ### boot-console
 

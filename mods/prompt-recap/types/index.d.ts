@@ -18,6 +18,20 @@ export type SessionRecap = { goal: string; now: string; waiting: string; next: s
 // The longer recap asked for with the Full recap button or /prompt-recap recap.
 export type FullRecap = { text: string; isLoading: boolean }
 
+// A background agent of the session (a subagent, a review run in the background), as this mod keeps it:
+// the engine drops a finished one from its list a while after it ends, this record stays.
+export type AgentTask = {
+  id: string
+  description: string
+  type: string // the agent type it was spawned as (general-purpose, Explore, ...)
+  model: string // the model it runs on, as the spawn resolved it
+  status: string // pending, running, waiting, idle, completed, failed, killed
+  startedAt: number
+  endedAt: number // 0 while it runs
+  tools: number // tool calls it made
+  last: string // what it did last
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'prompt-recap': {
@@ -25,6 +39,9 @@ declare module 'claude-code' {
       recap: SessionRecap | null
       live: string // what Claude is doing right now, from its tool calls
       full: FullRecap | null
+      agents: AgentTask[]
+      isAgentsOpen: boolean
+      tick: number // bumped to redraw: elapsed times, agent activity, the scrolled list
     }
   }
 }
