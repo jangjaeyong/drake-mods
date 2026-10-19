@@ -11,26 +11,27 @@ Claude Code mods. · Claude Code 용 mod 모음.
 | mod | What it does |
 | --- | --- |
 | [prompt-recap](mods/prompt-recap) | A pane beside the chat with your questions, what you added while Claude worked, and how each turn ended, plus the session at a glance: goal, what's happening now, what's waiting on you, next step. Press a question to jump back to it. |
+| [boot-console](mods/boot-console) | IntelliJ's Run tab for a Spring Boot app, in a pane: Run, Stop, Restart, Build, with the app's log live. Compiles what changed and starts the main class from the compiled classes, no jar. Profile, JVM options and JDK per project. |
 
 ### Install
 
-Claude Code 2.1.287 or later. At the prompt of a session:
+Claude Code 2.1.287 or later. At the prompt of a session (`<mod>` is `prompt-recap` or `boot-console`):
 
 ```
-/plugin install prompt-recap --marketplace jangjaeyong/drake-mods
+/plugin install <mod> --marketplace jangjaeyong/drake-mods
 ```
 
 Answer `y` to add the marketplace, then pick a scope. From a shell:
 
 ```
-claude plugin install prompt-recap --marketplace jangjaeyong/drake-mods
+claude plugin install <mod> --marketplace jangjaeyong/drake-mods
 ```
 
-Then `/reload-plugins` or restart. It works the same on any shell (zsh, bash, PowerShell) and OS: it runs no shell commands and reads no files or environment variables.
+Then `/reload-plugins` or restart.
 
 ### prompt-recap
 
-Open the pane with `/prompt-recap`.
+Open the pane with `/prompt-recap`. It works the same on any shell (zsh, bash, PowerShell) and OS: it runs no shell commands and reads no files or environment variables.
 
 ```
 ◆ Goal: finish the login feature
@@ -82,6 +83,33 @@ With summaries on, a small model (Haiku) is called once after each turn you type
 - Changing the summary option reloads the mod: change it between turns (a turn running at that moment may lose its summary).
 - It does what [where-am-i](https://github.com/hamzafer/claude-code-mods/tree/main/mods/where-am-i) does; with both on, summaries are made twice. Keep one.
 
+### boot-console
+
+Open the pane with `/boot-console` in a Spring Boot project built with the Gradle wrapper (`gradlew`). `/boot-console run`, `stop`, `restart` and `build` do the same as the buttons.
+
+```
+demo  ● running since 13:02:11  · profile local
+[ Stop ] [ Restart ] [ Clear ] [ Settings ▾ ]
+
+$ C:\Windows\system32\cmd.exe /d /c gradlew.bat ... bootConsoleArgs
+BUILD SUCCESSFUL in 4s
+$ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profiles.active=local
+2026-10-19 13:02:19  INFO  Started DemoApplication in 6.3 seconds
+2026-10-19 13:02:25  WARN  ...                                      (yellow)
+2026-10-19 13:02:31  ERROR ...                                      (red)
+```
+
+- `Run`: compiles what changed (Gradle `classes`), then starts the app. `Stop`: ends it, and frees its port. `Restart`: Stop, compile, start, as IntelliJ's Rerun. `Build`: compile only; errors show in the log. `Clear`: empty the log.
+- `Settings`: the profile (picked from `src/main/resources/application-*.yml`, or typed, comma-separated), the JVM options, and the JDK home (empty: `JAVA_HOME`). Kept per project; used from the next Run or Restart. The JVM options start as `-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true`.
+- How it runs: each Run writes a small Gradle init script to `build/boot-console/` and runs the `bootConsoleArgs` task it adds, which compiles and writes what `bootRun` would start (classpath and main class) as a java argument file. The mod then starts that JVM itself: one process, so Stop really ends it. Gradle runs through `cmd /c gradlew.bat` on Windows and `sh ./gradlew` elsewhere; your own shell (zsh, bash, PowerShell) is not involved.
+
+#### Notes
+
+- The app lives as long as Claude Code's session: quitting Claude Code, `/reload-plugins` and updating the mod stop it.
+- Stopping during a build ends the wait, but Gradle may finish its build in the background.
+- No debugger: for breakpoints, use your IDE.
+- If the first Run fails, the top of the log has the exact Gradle and java commands, and Gradle's error below them.
+
 ---
 
 ## 한국어
@@ -89,26 +117,27 @@ With summaries on, a small model (Haiku) is called once after each turn you type
 | mod | 하는 일 |
 | --- | --- |
 | [prompt-recap](mods/prompt-recap) | 내가 한 질문, 작업 중에 덧붙인 말, 턴 결과 요약에 더해 세션의 목표·지금 하는 일·나를 기다리는 것·다음 단계를 오른쪽 창에 모아 보여준다. 질문을 누르면 대화의 그 위치로 이동한다. |
+| [boot-console](mods/boot-console) | Spring Boot 앱용 IntelliJ Run 탭을 창으로: Run, Stop, Restart, Build 와 실시간 로그. jar 없이 바뀐 것만 컴파일하고 컴파일된 클래스에서 main 을 바로 실행한다. 프로필, JVM 옵션, JDK 를 프로젝트별로. |
 
 ### 설치
 
-Claude Code 2.1.287 이상. 세션 프롬프트에서:
+Claude Code 2.1.287 이상. 세션 프롬프트에서(`<mod>` 는 `prompt-recap` 또는 `boot-console`):
 
 ```
-/plugin install prompt-recap --marketplace jangjaeyong/drake-mods
+/plugin install <mod> --marketplace jangjaeyong/drake-mods
 ```
 
 마켓플레이스 추가를 물으면 `y`, 이어서 설치 범위를 고른다. 셸에서는:
 
 ```
-claude plugin install prompt-recap --marketplace jangjaeyong/drake-mods
+claude plugin install <mod> --marketplace jangjaeyong/drake-mods
 ```
 
-설치 뒤 `/reload-plugins` 또는 재시작. 셸(zsh, bash, PowerShell)이나 OS 와 무관하게 동작한다: 셸 명령, 파일, 환경변수를 쓰지 않는다.
+설치 뒤 `/reload-plugins` 또는 재시작.
 
 ### prompt-recap
 
-`/prompt-recap` 으로 창을 연다.
+`/prompt-recap` 으로 창을 연다. 셸(zsh, bash, PowerShell)이나 OS 와 무관하게 동작한다: 셸 명령, 파일, 환경변수를 쓰지 않는다.
 
 ```
 ◆ Goal: 로그인 기능 완성
@@ -160,12 +189,39 @@ claude plugin install prompt-recap --marketplace jangjaeyong/drake-mods
 - 요약 켜기/끄기는 mod 를 다시 불러오므로 턴과 턴 사이에 바꾼다(도는 중에 바꾸면 그 턴 요약이 빠질 수 있다).
 - [where-am-i](https://github.com/hamzafer/claude-code-mods/tree/main/mods/where-am-i) 와 같은 일을 하므로 둘 다 켜면 요약 호출이 두 번 나간다. 하나만 켠다.
 
+### boot-console
+
+Gradle wrapper(`gradlew`)로 빌드하는 Spring Boot 프로젝트에서 `/boot-console` 로 창을 연다. `/boot-console run`, `stop`, `restart`, `build` 는 버튼과 같다.
+
+```
+demo  ● running since 13:02:11  · profile local
+[ Stop ] [ Restart ] [ Clear ] [ Settings ▾ ]
+
+$ C:\Windows\system32\cmd.exe /d /c gradlew.bat ... bootConsoleArgs
+BUILD SUCCESSFUL in 4s
+$ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profiles.active=local
+2026-10-19 13:02:19  INFO  Started DemoApplication in 6.3 seconds
+2026-10-19 13:02:25  WARN  ...                                      (노랑)
+2026-10-19 13:02:31  ERROR ...                                      (빨강)
+```
+
+- `Run`: 바뀐 것만 컴파일(Gradle `classes`)한 뒤 앱을 띄운다. `Stop`: 앱을 끄고 포트도 비운다. `Restart`: IntelliJ 의 Rerun 처럼 끄고, 컴파일하고, 다시 띄운다. `Build`: 컴파일만, 에러는 로그에. `Clear`: 로그 비우기.
+- `Settings`: 프로필(`src/main/resources/application-*.yml` 에서 고르거나, 콤마로 직접 입력), JVM 옵션, JDK 경로(비우면 `JAVA_HOME`). 프로젝트별로 기억하고 다음 Run/Restart 부터 적용. JVM 옵션 기본값은 `-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true`.
+- 동작 방식: Run 마다 작은 Gradle init script 를 `build/boot-console/` 에 쓰고, 그 스크립트가 추가하는 `bootConsoleArgs` 태스크를 돌린다. 이 태스크가 컴파일하고 `bootRun` 이 띄울 것(classpath, main 클래스)을 java 인자 파일로 쓴다. 그다음 mod 가 그 JVM 을 직접 띄운다: 프로세스 하나라 Stop 이 확실하다. Gradle 은 Windows 에서 `cmd /c gradlew.bat`, 그 외에는 `sh ./gradlew` 로 돌고, 쓰는 셸(zsh, bash, PowerShell)과는 무관하다.
+
+#### 참고
+
+- 앱은 Claude Code 세션이 살아 있는 동안만 돈다: Claude Code 종료, `/reload-plugins`, mod 업데이트 때 꺼진다.
+- 빌드 중에 Stop 하면 기다림은 끝나지만 Gradle 은 뒤에서 빌드를 마칠 수 있다.
+- 디버거 없음: 브레이크포인트는 IDE 에서.
+- 첫 Run 이 실패하면 로그 맨 위에 실제 Gradle·java 명령이, 그 아래 Gradle 에러가 있다.
+
 ---
 
 ## Development · 개발
 
 ```
-claude --plugin-dir mods/prompt-recap
-claude plugin validate mods/prompt-recap
-claude plugin test mods/prompt-recap
+claude --plugin-dir mods/<mod>
+claude plugin validate mods/<mod>
+claude plugin test mods/<mod>
 ```

@@ -1,0 +1,10 @@
+{
+  "name": "boot-console",
+  "version": "0.1.0",
+  "description": "Build and run a Spring Boot app the way IntelliJ's Run does (compile what changed, start its main class from the compiled classes), with its log live in a pane beside the chat. Run, Stop, Restart, Build; profile, JVM options and JDK per project.",
+  "author": {
+    "name": "jangjaeyong",
+    "url": "https://github.com/jangjaeyong"
+  },
+  "types": "./types/index.d.ts"
+}
