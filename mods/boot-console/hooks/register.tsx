@@ -18,6 +18,7 @@ const SHOWN_LINES = 400
 const INLINE_LINES = 12 // an inline pane sits above the prompt: keep it short
 const MAX_LINE = 500
 const REDRAW_MS = 250
+const WHEEL_LINES = 3 // log lines one wheel tick moves
 const ENCODING = ['-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'] // a piped JVM writes the OS code page otherwise
 // What the JVM options field holds until it is changed for a project.
 const DEFAULT_JVM_OPTIONS = '-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true'
@@ -68,6 +69,8 @@ const rt = {
   stopping: undefined as Promise<void> | undefined, // the Stop under way, which a second one joins
   lines: [] as Line[],
   isRedrawDue: false,
+  back: 0, // how many lines the log is scrolled up from its end; 0 follows the end
+  isPinned: false, // the pane is docked and held to its height, so its log scrolls here
   // Runs a verb with the session's own $. A press hands its closure the $ of the drawing it was drawn
   // in, and a command the $ of its own dispatch; neither can start a child that outlives them, so the
   // children (Gradle, the app) are started with the $ the session started with.
@@ -75,7 +78,7 @@ const rt = {
 }
 
 type Action =
-  | { verb: 'run' | 'stop' | 'restart' | 'build' | 'clear' | 'import' }
+  | { verb: 'run' | 'stop' | 'restart' | 'build' | 'clear' | 'import' | 'follow' }
   | { verb: 'save'; patch: Partial<BootSettings> }
 
 export const register: Register = on => {
@@ -115,13 +118,21 @@ export const register: Register = on => {
     const java = await read($, javaPath)
     const isInline = e.props.placement === 'inline'
     const isBusy = st.phase === 'building' || st.phase === 'starting' || st.phase === 'running'
-    const shown = rt.lines.slice(-(isInline ? INLINE_LINES : SHOWN_LINES))
+    // Docked, the pane is held to its body's height: the top stays put and only the log scrolls, by
+    // this mod (ui.scroll below), not by the engine. Inline above the prompt it keeps its natural height.
+    const rows = e.props.scroll?.bodyRows ?? 0
+    rt.isPinned = !isInline && rows > 0
+    const shown = isInline
+      ? rt.lines.slice(-INLINE_LINES)
+      : visibleLines(rt.lines, rt.back, rt.isPinned ? rows : SHOWN_LINES, e.props.bodyColumns)
     const head = phaseLabel(st)
     const choices = [...new Set([...found, ...(s.profile ? [s.profile] : [])])]
+    const pin = rt.isPinned ? { height: rows, overflow: 'hidden' as const } : {}
+    const tail = rt.isPinned ? { flexGrow: 1, overflow: 'hidden' as const, justifyContent: 'flex-end' as const } : {}
 
     return (
-      <Box flexDirection="column" gap={1}>
-        <Box flexDirection="column">
+      <Box flexDirection="column" gap={1} {...pin}>
+        <Box flexDirection="column" flexShrink={0}>
           <Text wrap="wrap">
             <Text bold>{baseName(rt.cwd)}</Text>
             <Text>{'  '}</Text>
@@ -141,6 +152,8 @@ export const register: Register = on => {
             )}
             <Button key="clear" label="Clear" dimColor onPress={() => void ask({ verb: 'clear' })} />
             <Button key="settings" label={isOpen ? 'Settings ▴' : 'Settings ▾'} dimColor onPress={() => void update($, isSettingsOpen, v => !v)} />
+            {rt.back > 0 && <Text color="yellow">{`↑ ${rt.back} lines up`}</Text>}
+            {rt.back > 0 && <Button key="follow" label="Follow" dimColor onPress={() => void ask({ verb: 'follow' })} />}
           </Box>
         </Box>
 
@@ -150,7 +163,7 @@ export const register: Register = on => {
           (() => {
             const { Select, Input } = fields
             return (
-              <Box flexDirection="column">
+              <Box flexDirection="column" flexShrink={0}>
                 {choices.length > 0 && (
                   <Select
                     key="profile"
@@ -194,7 +207,7 @@ export const register: Register = on => {
             )
           })()}
 
-        <Box flexDirection="column">
+        <Box key="log" flexDirection="column" {...tail}>
           {shown.length === 0 && <Text dimColor>Press Run to compile and start the app. Its log shows here.</Text>}
           {shown.map(line => {
             const t = tone(line)
@@ -207,6 +220,15 @@ export const register: Register = on => {
         </Box>
       </Box>
     )
+  })
+
+  // The docked pane scrolls its log itself: the wheel, the arrows and the page keys move the log, and
+  // the engine's window stays at the top, where the buttons are. Inline, the engine scrolls as usual.
+  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (!rt.isPinned) return next(e)
+    rt.back = scrolledBack(rt.back, e.pointer ? e.by * WHEEL_LINES : e.by, rt.lines.length)
+    void update($, logVersion, n => n + 1).catch(() => {})
+    return next({ ...e, offset: 0 })
   })
 }
 
@@ -232,6 +254,7 @@ async function act($: EngineInterface, action: Action) {
     else if (action.verb === 'build') await buildOnly($)
     else if (action.verb === 'clear') await clearLog($)
     else if (action.verb === 'import') await importIntellij($)
+    else if (action.verb === 'follow') await follow($)
     else if (action.verb === 'save') await saveSettings($, action.patch)
   } catch (err) {
     for (const text of failure(`${action.verb} failed`, err)) rt.lines.push({ text, kind: 'err' })
@@ -327,7 +350,7 @@ async function compile($: EngineInterface, id: number, home: string, gradleArgs:
     TASK,
   ])
   note($, `$ ${argv.map(maskSecret).join(' ')}`)
-  void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {}) // follow the log until the person scrolls
+  rt.back = 0 // a new run is followed from its first line
   if (id !== rt.run) return false
   const code = await pump($, id, $.process.spawn({ argv, cwd: rt.cwd, env }), 'build')
   if (id !== rt.run) return false
@@ -366,15 +389,27 @@ async function pump($: EngineInterface, id: number, child: HookStream<ProcessSpa
 
 function take($: EngineInterface, id: number, raw: string, kind: LineKind) {
   const text = clean(raw)
-  rt.lines.push({ text, kind })
-  if (rt.lines.length > MAX_LINES) rt.lines.splice(0, rt.lines.length - MAX_LINES)
+  add({ text, kind })
   if (kind === 'out' && STARTED.test(text)) void setStatusIf($, id, 'running').catch(() => {})
   redrawSoon($)
 }
 
 function note($: EngineInterface, text: string) {
-  rt.lines.push({ text, kind: 'info' })
+  add({ text, kind: 'info' })
   redrawSoon($)
+}
+
+// A line on the log. Scrolled up, the view stays on what it shows while new lines come in below.
+function add(line: Line) {
+  rt.lines.push(line)
+  if (rt.lines.length > MAX_LINES) rt.lines.splice(0, rt.lines.length - MAX_LINES)
+  if (rt.back > 0) rt.back = Math.min(rt.back + 1, rt.lines.length - 1)
+}
+
+// Back to the end of the log, following what comes.
+async function follow($: EngineInterface) {
+  rt.back = 0
+  await update($, logVersion, n => n + 1)
 }
 
 // One redraw per REDRAW_MS at most, however fast the lines come.
@@ -389,7 +424,27 @@ function redrawSoon($: EngineInterface) {
 
 async function clearLog($: EngineInterface) {
   rt.lines = []
+  rt.back = 0
   await update($, logVersion, n => n + 1)
+}
+
+// The log lines that fill `rows` rows ending `back` lines up from the end, a long line counted for the
+// rows it wraps to. What still overflows (wide characters) is cut at the top, so the newest stays.
+export function visibleLines<T extends { text: string }>(lines: T[], back: number, rows: number, columns: number): T[] {
+  const end = Math.max(0, lines.length - back)
+  const out: T[] = []
+  let used = 0
+  for (let i = end - 1; i >= 0 && used < rows; i--) {
+    const line = lines[i] as T
+    out.unshift(line)
+    used += Math.max(1, Math.ceil(line.text.length / Math.max(1, columns)))
+  }
+  return out
+}
+
+// Where the log stands after a scroll of `by` rows (negative is up), between its end and its first line.
+export function scrolledBack(back: number, by: number, total: number): number {
+  return Math.min(Math.max(back - by, 0), Math.max(0, total - 1))
 }
 
 async function setStatus($: EngineInterface, phase: BootPhase, detail: string) {

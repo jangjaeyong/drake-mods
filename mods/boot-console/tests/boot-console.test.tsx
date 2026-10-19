@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Mounted } from 'claude-code/testing'
 
-import { gradleArgv, intellijRun, isStarted, javaArgv, javaExe, jdkRoot, maskSecret, profilesFrom, splitChunk, tokenize, tone } from '../hooks/register'
+import { gradleArgv, intellijRun, isStarted, javaArgv, javaExe, jdkRoot, maskSecret, profilesFrom, scrolledBack, splitChunk, tokenize, tone, visibleLines } from '../hooks/register'
 
 // An IntelliJ workspace file as IntelliJ writes it: a Gradle task, the Spring Boot run, its template.
 const WORKSPACE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -140,6 +140,22 @@ describe('the pieces', () => {
     expect(javaExe('C:\\jdk-25\\bin\\java.exe', true)).toBe('C:\\jdk-25\\bin\\java.exe')
     expect(javaExe('/usr/bin/java', false)).toBe('/usr/bin/java')
     expect(javaExe('', true)).toBe('java')
+  })
+
+  test('shows the log lines that fill the rows, counting a long line for the rows it wraps to', async () => {
+    const lines = Array.from({ length: 10 }, (_, i) => ({ text: `line ${i}` }))
+    expect(visibleLines(lines, 0, 3, 80).map(l => l.text)).toEqual(['line 7', 'line 8', 'line 9'])
+    expect(visibleLines(lines, 2, 3, 80).map(l => l.text)).toEqual(['line 5', 'line 6', 'line 7'])
+    expect(visibleLines(lines, 0, 50, 80)).toHaveLength(10)
+    const wide = [{ text: 'a' }, { text: 'b'.repeat(25) }, { text: 'c' }]
+    expect(visibleLines(wide, 0, 3, 10).map(l => l.text[0])).toEqual(['b', 'c']) // b wraps to 3 rows
+  })
+
+  test('scrolls the log up and down between its end and its first line', async () => {
+    expect(scrolledBack(0, -3, 100)).toBe(3) // up
+    expect(scrolledBack(3, 5, 100)).toBe(0) // down, no further than the end
+    expect(scrolledBack(90, -50, 100)).toBe(99) // no further than the first line
+    expect(scrolledBack(0, -3, 0)).toBe(0)
   })
 
   test('reads the Spring Boot run configuration from an IntelliJ workspace file', async () => {
@@ -581,6 +597,34 @@ describe('boot-console', () => {
     expect(await ui.find({ type: 'Text', text: /no gradle\/wrapper\/gradle-wrapper\.jar in this project/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /✗ failed .*\(no Gradle wrapper\)/ })).toBeDefined()
     await ui.unmount()
+  })
+
+  test('docked, the pane holds to its height: the buttons stay and the newest log lines show', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    mock.env(on, {})
+    let release = () => {}
+    const gate = new Promise<void>(resolve => (release = resolve))
+    async function* chatty() {
+      yield { stream: 'stdout', text: `${Array.from({ length: 50 }, (_, i) => `log line ${i}`).join('\n')}\n` } as Piece
+      await gate
+      return { code: 0, signal: null }
+    }
+    world(on, { gradle: gradleOk, java: chatty })
+    await $.session.start(start(WIN))
+    await $.command.run({ command: 'boot-console', args: 'run' } as any)
+    await clock.settle()
+
+    const docked = { ...PANE, props: { ...PANE.props, scroll: { offset: 0, bodyRows: 12 } } }
+    const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...docked } as any)
+    const tree = (await ui.drawn()) as any
+    expect(tree.props).toMatchObject({ height: 12, overflow: 'hidden' })
+    expect(await ui.find({ type: 'Button', key: 'stop' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'log line 49' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'log line 0' })).toBeUndefined()
+    await ui.unmount()
+    release()
+    await clock.settle()
   })
 
   test('a fresh load says the app is not running', async ($, on) => {
