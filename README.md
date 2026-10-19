@@ -100,7 +100,9 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 ```
 
 - `Run`: compiles what changed (Gradle `classes`), then starts the app. `Stop`: ends it, and frees its port. `Restart`: Stop, compile, start, as IntelliJ's Rerun. `Build`: compile only; errors show in the log. `Clear`: empty the log.
-- `Settings`: the profile (picked from `src/main/resources/application-*.yml`, or typed, comma-separated), the JVM options, and the JDK home (empty: `JAVA_HOME`). Kept per project; used from the next Run or Restart. The JVM options start as `-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true`.
+- `Settings`: the profile (picked from `src/main/resources/application-*.yml`, or typed, comma-separated), the JVM options, the JDK home (empty: `JAVA_HOME`) and Gradle args (e.g. `--offline`, before the task). Kept per project; used from the next Run or Restart.
+- From IntelliJ: until you save settings for a project, its IntelliJ Spring Boot run configuration (`.idea/workspace.xml`) gives the profile and the JVM options, so what the app needs from IntelliJ's VM options (a key, a path) comes along. `From IntelliJ` under Settings takes them again. Without one, the JVM options start as `-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true`.
+- A `-D` option whose name holds password, secret, token or credential shows as `****` in the log (it is still passed to the app, and kept in the settings as typed).
 - How it runs: each Run writes a small Gradle init script to `build/boot-console/` and runs the `bootConsoleArgs` task it adds, which compiles and writes what `bootRun` would start (classpath and main class) as a java argument file. The mod then starts that JVM itself: one process, so Stop really ends it. Gradle runs through `cmd /d /c gradlew.bat` on Windows and `sh ./gradlew` elsewhere; your own shell (zsh, bash, PowerShell) is not involved.
 
 #### Notes
@@ -109,7 +111,8 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 - The JDK that runs the app should match the project's Java toolchain (a JDK 17 `JAVA_HOME` cannot run classes compiled for 25): set it under Settings when `JAVA_HOME` differs. With no `local` profile in the project, none is picked until you choose one.
 - Keep the project and the Gradle cache on paths without non-ASCII characters: on Windows java reads its argument file in the system code page.
 - The app lives as long as Claude Code's session: quitting Claude Code, `/reload-plugins` and updating the mod stop it.
-- Stopping during a build ends the wait, but Gradle may finish its build in the background.
+- Stopping during a build ends the wait, but Gradle may finish its build in the background: give it a moment before the next Run, or two builds may write the same classes.
+- Some apps read the active profile as a single value: if in doubt, run with one profile.
 - No debugger: for breakpoints, use your IDE.
 - If the first Run fails, the top of the log has the exact Gradle and java commands, and Gradle's error below them.
 
@@ -209,7 +212,9 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 ```
 
 - `Run`: 바뀐 것만 컴파일(Gradle `classes`)한 뒤 앱을 띄운다. `Stop`: 앱을 끄고 포트도 비운다. `Restart`: IntelliJ 의 Rerun 처럼 끄고, 컴파일하고, 다시 띄운다. `Build`: 컴파일만, 에러는 로그에. `Clear`: 로그 비우기.
-- `Settings`: 프로필(`src/main/resources/application-*.yml` 에서 고르거나, 콤마로 직접 입력), JVM 옵션, JDK 경로(비우면 `JAVA_HOME`). 프로젝트별로 기억하고 다음 Run/Restart 부터 적용. JVM 옵션 기본값은 `-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true`.
+- `Settings`: 프로필(`src/main/resources/application-*.yml` 에서 고르거나, 콤마로 직접 입력), JVM 옵션, JDK 경로(비우면 `JAVA_HOME`), Gradle 인자(예: `--offline`, 태스크 앞에 붙음). 프로젝트별로 기억하고 다음 Run/Restart 부터 적용.
+- IntelliJ 에서 가져오기: 그 프로젝트에서 설정을 저장하기 전까지는 IntelliJ 의 Spring Boot 실행 구성(`.idea/workspace.xml`)에서 프로필과 JVM 옵션을 가져온다. 그래서 IntelliJ VM 옵션에 들어 있던 앱에 필요한 값(키, 경로)도 같이 온다. Settings 의 `From IntelliJ` 로 언제든 다시 가져온다. 실행 구성이 없으면 JVM 옵션 기본값은 `-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true`.
+- 이름에 password, secret, token, credential 이 들어간 `-D` 옵션은 로그에 `****` 로 보인다(앱에는 그대로 넘어가고, 설정에는 입력한 대로 저장된다).
 - 동작 방식: Run 마다 작은 Gradle init script 를 `build/boot-console/` 에 쓰고, 그 스크립트가 추가하는 `bootConsoleArgs` 태스크를 돌린다. 이 태스크가 컴파일하고 `bootRun` 이 띄울 것(classpath, main 클래스)을 java 인자 파일로 쓴다. 그다음 mod 가 그 JVM 을 직접 띄운다: 프로세스 하나라 Stop 이 확실하다. Gradle 은 Windows 에서 `cmd /d /c gradlew.bat`, 그 외에는 `sh ./gradlew` 로 돌고, 쓰는 셸(zsh, bash, PowerShell)과는 무관하다.
 
 #### 참고
@@ -218,7 +223,8 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 - 앱을 띄우는 JDK 는 프로젝트의 Java toolchain 과 맞아야 한다(JDK 17 인 `JAVA_HOME` 으로는 25 로 컴파일한 클래스를 못 띄운다): `JAVA_HOME` 이 다르면 Settings 에서 지정한다. 프로젝트에 `local` 프로필이 없으면 직접 고르기 전까지 프로필 없이 띄운다.
 - 프로젝트와 Gradle 캐시 경로에 한글 같은 비 ASCII 문자가 없게 둔다: Windows 에서 java 가 인자 파일을 시스템 코드페이지로 읽는다.
 - 앱은 Claude Code 세션이 살아 있는 동안만 돈다: Claude Code 종료, `/reload-plugins`, mod 업데이트 때 꺼진다.
-- 빌드 중에 Stop 하면 기다림은 끝나지만 Gradle 은 뒤에서 빌드를 마칠 수 있다.
+- 빌드 중에 Stop 하면 기다림은 끝나지만 Gradle 은 뒤에서 빌드를 마칠 수 있다: 다음 Run 은 잠깐 기다렸다가 한다(안 그러면 두 빌드가 같은 클래스를 쓸 수 있다).
+- 활성 프로필을 값 하나로 읽는 앱도 있다: 잘 모르면 프로필은 하나로 띄운다.
 - 디버거 없음: 브레이크포인트는 IDE 에서.
 - 첫 Run 이 실패하면 로그 맨 위에 실제 Gradle·java 명령이, 그 아래 Gradle 에러가 있다.
 

@@ -1,7 +1,26 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Mounted } from 'claude-code/testing'
 
-import { gradleArgv, isStarted, javaArgv, javaExe, jdkRoot, profilesFrom, splitChunk, tokenize, tone } from '../hooks/register'
+import { gradleArgv, intellijRun, isStarted, javaArgv, javaExe, jdkRoot, maskSecret, profilesFrom, splitChunk, tokenize, tone } from '../hooks/register'
+
+// An IntelliJ workspace file as IntelliJ writes it: a Gradle task, the Spring Boot run, its template.
+const WORKSPACE = `<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RunManager" selected="Spring Boot.DemoApplication">
+    <configuration name="demo [build]" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
+      <ExternalSystemSettings><option name="scriptParameters" value="--offline" /></ExternalSystemSettings>
+    </configuration>
+    <configuration name="DemoApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+      <option name="ACTIVE_PROFILES" value="local" />
+      <option name="SPRING_BOOT_MAIN_CLASS" value="com.example.DemoApplication" />
+      <option name="VM_PARAMETERS" value="-Dapp.key.password=s3cr3t -Dfile.encoding=&quot;UTF-8&quot; -Xmx1g" />
+      <method v="2"><option name="Make" enabled="true" /></method>
+    </configuration>
+    <configuration default="true" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+      <option name="SHORTEN_COMMAND_LINE" value="ARGS_FILE" />
+    </configuration>
+  </component>
+</project>`
 
 const PANE = { component: 'Pane', requestId: 'boot-console', props: { title: 'Boot Console', isFocused: false, bodyColumns: 100, placement: 'dock' } }
 const WIN = 'C:/work/demo'
@@ -107,6 +126,25 @@ describe('the pieces', () => {
     expect(javaExe('C:\\jdk-25\\bin\\java.exe', true)).toBe('C:\\jdk-25\\bin\\java.exe')
     expect(javaExe('/usr/bin/java', false)).toBe('/usr/bin/java')
     expect(javaExe('', true)).toBe('java')
+  })
+
+  test('reads the Spring Boot run configuration from an IntelliJ workspace file', async () => {
+    expect(intellijRun(WORKSPACE)).toEqual({ name: 'DemoApplication', vmOptions: '-Dapp.key.password=s3cr3t -Dfile.encoding="UTF-8" -Xmx1g', profiles: 'local' })
+    expect(intellijRun('<project><component name="RunManager"></component></project>')).toBeUndefined()
+    expect(intellijRun('<project/>')).toBeUndefined()
+  })
+
+  test('keeps secrets in -D options out of the log', async () => {
+    expect(maskSecret('-Djasypt.encryptor.password=abc')).toBe('-Djasypt.encryptor.password=****')
+    expect(maskSecret('-Dapi.token=xyz')).toBe('-Dapi.token=****')
+    expect(maskSecret('-Dfile.encoding=UTF-8')).toBe('-Dfile.encoding=UTF-8')
+    expect(maskSecret('-Xmx1g')).toBe('-Xmx1g')
+  })
+
+  test('colours javac errors and warnings in Korean too', async () => {
+    expect(tone({ text: 'Demo.java:3: 오류: 기호를 찾을 수 없습니다', kind: 'build' })).toEqual({ color: 'red' })
+    expect(tone({ text: 'Demo.java:9: 경고: [deprecation] old() 은(는) 더 이상 사용되지 않습니다', kind: 'build' })).toEqual({ color: 'yellow' })
+    expect(tone({ text: 'Demo.java:9: warning: [deprecation] old() has been deprecated', kind: 'build' })).toEqual({ color: 'yellow' })
   })
 
   test('gives Gradle the JDK itself as JAVA_HOME, even when the setting names its java', async () => {
@@ -448,6 +486,60 @@ describe('boot-console', () => {
     const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...PANE } as any)
     expect(await ui.find({ type: 'Text', text: /✓ compiled/ })).toBeDefined()
     await ui.unmount()
+  })
+
+  test('a project run in IntelliJ starts with its run configuration, and the secret stays out of the log', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    mock.env(on, {})
+    on('fs.read', (_$: any, e: any) => (String(e.path).replace(/\\/g, '/').endsWith('.idea/workspace.xml') ? { value: WORKSPACE } : { deny: 'no such file' }))
+    const java = javaUp()
+    const w = world(on, { gradle: gradleOk, java: java.child }, ['application-dev.yml', 'application-local.yml'])
+    await $.session.start(start(WIN))
+    await $.command.run({ command: 'boot-console', args: 'run' } as any)
+    await clock.settle()
+
+    expect(w.spawns[1]?.argv).toEqual([
+      'java',
+      '-Dapp.key.password=s3cr3t',
+      '-Dfile.encoding=UTF-8',
+      '-Xmx1g',
+      '-Dstdout.encoding=UTF-8',
+      '-Dstderr.encoding=UTF-8',
+      `@${WIN}/build/boot-console/java.args`,
+      '--spring.profiles.active=local',
+    ])
+    const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: 'settings from IntelliJ run configuration "DemoApplication"' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /-Dapp\.key\.password=\*\*\*\* / })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /s3cr3t/ })).toBeUndefined()
+    await ui.unmount()
+    java.release()
+    await clock.settle()
+  })
+
+  test('From IntelliJ takes the run configuration again over what was saved, and Gradle args go before the task', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    mock.store(on, { 'settings:C:/work/demo': { profile: 'dev', jvmOptions: '-Xmx2g', javaHome: '', gradleArgs: '--offline' } })
+    mock.env(on, {})
+    on('fs.read', (_$: any, e: any) => (String(e.path).replace(/\\/g, '/').endsWith('.idea/workspace.xml') ? { value: WORKSPACE } : { deny: 'no such file' }))
+    const java = javaUp()
+    const w = world(on, { gradle: gradleOk, java: java.child })
+    await $.session.start(start(WIN))
+
+    const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...PANE } as any)
+    expect((await ui.find({ type: 'Text', text: /profile/ }))?.text).toMatch(/· profile dev$/) // what was saved comes first
+    await ui.press({ key: 'settings' })
+    await ui.press({ key: 'fromIntellij' })
+    expect((await ui.find({ type: 'Text', text: /profile/ }))?.text).toMatch(/· profile local$/)
+    await ui.press({ key: 'run' })
+    await clock.settle()
+
+    expect(w.spawns[0]?.argv).toEqual(['cmd.exe', '/d', '/c', 'gradlew.bat', '--offline', ...GRADLE_TAIL])
+    expect(w.spawns[1]?.argv.slice(1, 4)).toEqual(['-Dapp.key.password=s3cr3t', '-Dfile.encoding=UTF-8', '-Xmx1g'])
+    await ui.unmount()
+    java.release()
+    await clock.settle()
   })
 
   test('a fresh load says the app is not running', async ($, on) => {

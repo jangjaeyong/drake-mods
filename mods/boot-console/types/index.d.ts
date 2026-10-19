@@ -7,6 +7,7 @@ export type BootSettings = {
   profile: string // --spring.profiles.active; '' for none, several comma-separated
   jvmOptions: string // before the main class, e.g. -Xmx2g -Dfoo=bar
   javaHome: string // the JDK; '' for JAVA_HOME
+  gradleArgs: string // before the task, e.g. --offline
 }
 
 declare module 'claude-code' {

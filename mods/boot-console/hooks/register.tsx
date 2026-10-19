@@ -22,6 +22,7 @@ const ENCODING = ['-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'] // a pip
 // What the JVM options field holds until it is changed for a project.
 const DEFAULT_JVM_OPTIONS = '-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true'
 const STARTED = /\bStarted \S+ in [\d.]+ seconds?\b/
+const IDEA_WORKSPACE = '.idea/workspace.xml' // IntelliJ keeps its run configurations here
 
 // Written into the project for each Run: compiles the app and writes, as a java argument file, what
 // `bootRun` would start (its classpath and main class). No Groovy `${}` here: this is a JS template.
@@ -47,7 +48,7 @@ gradle.rootProject { root ->
 `
 
 const status = atom({ plugin: 'boot-console', key: 'status' } as const, { phase: 'idle', since: 0, detail: '' } as BootStatus)
-const settings = atom({ plugin: 'boot-console', key: 'settings' } as const, { profile: '', jvmOptions: '', javaHome: '' } as BootSettings)
+const settings = atom({ plugin: 'boot-console', key: 'settings' } as const, { profile: '', jvmOptions: '', javaHome: '', gradleArgs: '' } as BootSettings)
 const profiles = atom({ plugin: 'boot-console', key: 'profiles' } as const, [] as string[])
 const javaPath = atom({ plugin: 'boot-console', key: 'javaPath' } as const, '')
 const logVersion = atom({ plugin: 'boot-console', key: 'logVersion' } as const, 0)
@@ -172,6 +173,14 @@ export const register: Register = on => {
                   value={s.javaHome}
                   onSubmit={value => void saveSettings($, { javaHome: value.trim() }).catch(() => {})}
                 />
+                <Input
+                  key="gradleArgs"
+                  label="Gradle args"
+                  placeholder="--offline"
+                  value={s.gradleArgs}
+                  onSubmit={value => void saveSettings($, { gradleArgs: value.trim() }).catch(() => {})}
+                />
+                <Button key="fromIntellij" label="From IntelliJ" dimColor onPress={() => void importIntellij($).catch(() => {})} />
                 <Text dimColor wrap="wrap">{`java: ${java || '(not found yet)'}  · applies from the next Run or Restart`}</Text>
               </Box>
             )
@@ -201,9 +210,9 @@ async function start($: EngineInterface) {
   try {
     const s = await read($, settings)
     const home = await resolveHome($, s)
-    if (!(await compile($, id, home))) return
+    if (!(await compile($, id, home, s.gradleArgs))) return
     const argv = javaArgv(javaExe(home, rt.isWindows), s.jvmOptions, `${slashed(rt.cwd)}/${ARGS_FILE}`, s.profile)
-    note($, `$ ${argv.join(' ')}`)
+    note($, `$ ${argv.map(maskSecret).join(' ')}`)
     await setStatusIf($, id, 'starting')
     if (id !== rt.run) return // stopped meanwhile: start nothing
     const code = await pump($, id, $.process.spawn({ argv, cwd: rt.cwd }), 'out')
@@ -219,7 +228,8 @@ async function buildOnly($: EngineInterface) {
   rt.isActive = true
   const id = ++rt.run
   try {
-    if (await compile($, id, await resolveHome($, await read($, settings)))) await setStatusIf($, id, 'built')
+    const s = await read($, settings)
+    if (await compile($, id, await resolveHome($, s), s.gradleArgs)) await setStatusIf($, id, 'built')
   } finally {
     if (id === rt.run) rt.isActive = false
   }
@@ -257,14 +267,21 @@ async function restart($: EngineInterface) {
 
 // Gradle compiles what changed and writes the java argument file. True when it can be started.
 // A run Stop has passed over writes no status: only the current one says where the app is.
-async function compile($: EngineInterface, id: number, home: string): Promise<boolean> {
+async function compile($: EngineInterface, id: number, home: string, gradleArgs: string): Promise<boolean> {
   if (id !== rt.run) return false
   await setStatusIf($, id, 'building')
   note($, `── ${new Date(await $.clock.now()).toTimeString().slice(0, 8)} ──`)
   await $.fs.write(`${rt.cwd}/${INIT_SCRIPT}`, INIT_GRADLE)
   const env: Record<string, string> = { GRADLE_OPTS: `${(await $.env.get('GRADLE_OPTS')) ?? ''} ${ENCODING.join(' ')}`.trim() }
   if (home) env.JAVA_HOME = jdkRoot(home) // the JDK itself, even when the setting names its java
-  const argv = gradleArgv(rt.isWindows, await $.env.get('ComSpec'), ['--console=plain', '--no-configuration-cache', '--init-script', INIT_SCRIPT, TASK])
+  const argv = gradleArgv(rt.isWindows, await $.env.get('ComSpec'), [
+    ...tokenize(gradleArgs),
+    '--console=plain',
+    '--no-configuration-cache',
+    '--init-script',
+    INIT_SCRIPT,
+    TASK,
+  ])
   note($, `$ ${argv.join(' ')}`)
   note($, `java: ${javaExe(home, rt.isWindows)}`)
   void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {}) // follow the log until the person scrolls
@@ -341,21 +358,43 @@ async function setStatusIf($: EngineInterface, id: number, phase: BootPhase, det
   if (id === rt.run) await setStatus($, phase, detail)
 }
 
-// The settings for this project, and the profiles its resources name.
+// The settings for this project, and the profiles its resources name. Until any is saved here, the
+// project's IntelliJ Spring Boot run configuration gives the profile and the JVM options, so a project
+// that runs in IntelliJ runs here too (its VM options often carry what the app needs, a key, a path).
 async function loadSettings($: EngineInterface) {
   const entries = await $.fs.list(`${rt.cwd}/src/main/resources`).catch(() => [])
   const found = profilesFrom(entries.filter(entry => entry.kind === 'file').map(entry => entry.name))
   const saved = ((await $.store.get(storeKey())) ?? {}) as Partial<BootSettings>
+  const ide = saved.profile === undefined || saved.jvmOptions === undefined ? await readIntellij($) : undefined
   const next: BootSettings = {
     // local when the project has it; otherwise none, never a guess that could be prod's
-    profile: saved.profile ?? (found.includes('local') ? 'local' : ''),
-    jvmOptions: saved.jvmOptions ?? DEFAULT_JVM_OPTIONS,
+    profile: saved.profile ?? (ide?.profiles || (found.includes('local') ? 'local' : '')),
+    jvmOptions: saved.jvmOptions ?? (ide?.vmOptions || DEFAULT_JVM_OPTIONS),
     javaHome: saved.javaHome ?? '',
+    gradleArgs: saved.gradleArgs ?? '',
   }
+  if (ide) note($, `settings from IntelliJ run configuration "${ide.name}"`)
   await update($, profiles, () => found)
   await update($, settings, () => next)
   await update($, javaPath, () => '')
   await showJava($, next)
+}
+
+// Takes the profile and JVM options from the IntelliJ run configuration again, and keeps them.
+async function importIntellij($: EngineInterface) {
+  const ide = await readIntellij($)
+  if (!ide) {
+    note($, `no Spring Boot run configuration in ${IDEA_WORKSPACE}`)
+    return
+  }
+  const s = await read($, settings)
+  await saveSettings($, { profile: ide.profiles || s.profile, jvmOptions: ide.vmOptions || s.jvmOptions })
+  note($, `settings from IntelliJ run configuration "${ide.name}"`)
+}
+
+async function readIntellij($: EngineInterface): Promise<IdeaRun | undefined> {
+  const xml = await $.fs.read(`${rt.cwd}/${IDEA_WORKSPACE}`).catch(() => '')
+  return typeof xml === 'string' && xml !== '' ? intellijRun(xml) : undefined
 }
 
 async function saveSettings($: EngineInterface, patch: Partial<BootSettings>) {
@@ -389,6 +428,41 @@ export function javaExe(home: string, isWindows: boolean): string {
   if (h === '') return 'java'
   if (/(^|[\\/])java(\.exe)?$/i.test(h)) return h
   return `${h}/bin/${isWindows ? 'java.exe' : 'java'}`
+}
+
+export type IdeaRun = { name: string; vmOptions: string; profiles: string }
+
+// The Spring Boot run configuration in IntelliJ's workspace file: the one selected there, else the
+// first; the template IntelliJ keeps for new ones is left out.
+export function intellijRun(xml: string): IdeaRun | undefined {
+  const manager = /<component name="RunManager"([^>]*)>([\s\S]*?)<\/component>/.exec(xml)
+  if (!manager) return undefined
+  const selected = unescapeXml(/\bselected="([^"]*)"/.exec(manager[1] ?? '')?.[1] ?? '')
+  const body = (manager[2] ?? '').replace(/<configuration\b[^>]*\/>/g, '') // self-closing ones hold nothing
+  const runs: IdeaRun[] = []
+  for (const m of body.matchAll(/<configuration\b([^>]*)>([\s\S]*?)<\/configuration>/g)) {
+    const attrs = m[1] ?? ''
+    if (!/\btype="SpringBootApplicationConfigurationType"/.test(attrs) || /\bdefault="true"/.test(attrs)) continue
+    const option = (name: string) => unescapeXml(new RegExp(`<option name="${name}" value="([^"]*)"`).exec(m[2] ?? '')?.[1] ?? '')
+    runs.push({ name: unescapeXml(/\bname="([^"]*)"/.exec(attrs)?.[1] ?? ''), vmOptions: option('VM_PARAMETERS'), profiles: option('ACTIVE_PROFILES') })
+  }
+  return runs.find(run => selected === `Spring Boot.${run.name}`) ?? runs[0]
+}
+
+function unescapeXml(text: string) {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+}
+
+// A secret in a -D option is not written to the log: -Dsome.password=x shows as -Dsome.password=****.
+export function maskSecret(arg: string): string {
+  return arg.replace(/^(-D[^=]*(password|passwd|secret|token|credential)[^=]*=).+$/i, '$1****')
 }
 
 // The JDK a setting names, for JAVA_HOME: a path to its java is taken back to the JDK's root.
@@ -430,8 +504,9 @@ export function tone(line: { text: string; kind: LineKind }): { color?: string; 
   const t = line.text
   if (line.kind === 'info') return { color: 'cyan' }
   if (/^\s+at |^\s*\.\.\. \d+ (more|common frames omitted)/.test(t)) return { color: 'red', isDim: true }
-  if (/\b(ERROR|FATAL|SEVERE)\b|^Caused by:|^\S*(Exception|Error)(: |$)|BUILD FAILED|^FAILURE:|: error:/.test(t)) return { color: 'red' }
-  if (/\bWARN(ING)?\b|: warning:/.test(t)) return { color: 'yellow' }
+  if (/\.java:\d+: (warning|경고):/.test(t)) return { color: 'yellow' } // javac, in English or Korean
+  if (/\b(ERROR|FATAL|SEVERE)\b|^Caused by:|^\S*(Exception|Error)(: |$)|BUILD FAILED|^FAILURE:|: (error|오류):|\.java:\d+: /.test(t)) return { color: 'red' }
+  if (/\bWARN(ING)?\b|: (warning|경고):/.test(t)) return { color: 'yellow' }
   if (/BUILD SUCCESSFUL/.test(t) || STARTED.test(t)) return { color: 'green' }
   if (line.kind === 'build') return { isDim: true }
   if (line.kind === 'err') return { color: 'red' }
