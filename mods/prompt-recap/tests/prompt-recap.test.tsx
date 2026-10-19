@@ -67,11 +67,42 @@ describe('the list', () => {
   })
 
   test('finds a prompt row by its head, loosely when the texts part ways', async () => {
-    const rows = new Map([['fix the login bug please', 'm1'], ['[Pasted text #1]', 'm2']])
-    expect(findRow(rows, 'fix the login bug please')).toBe('m1')
-    expect(findRow(rows, 'fix the login bug')).toBe('m1')
-    expect(findRow(rows, 'nothing like it')).toBeUndefined()
+    const rows = new Map([['fix the login bug on the settings page', 'm1'], ['[Pasted text #1]', 'm2']])
+    expect(findRow(rows, 'fix the login bug on the settings page')).toBe('m1')
+    expect(findRow(rows, 'fix the login bug on the')).toBe('m1')
+    expect(findRow(rows, 'nothing like it at all, really')).toBeUndefined()
     expect(findRow(rows, '')).toBeUndefined()
+  })
+
+  test('a short head never jumps loosely, and of several loose matches the last drawn wins', async () => {
+    expect(findRow(new Map([['ok, go ahead with the migration', 'm1']]), 'ok')).toBeUndefined()
+    expect(findRow(new Map([['o', 'm1']]), 'ok, go ahead with the migration')).toBeUndefined()
+    const rows = new Map([['update the readme with install steps', 'old'], ['update the readme with install steps and a gif', 'new']])
+    expect(findRow(rows, 'update the readme with install')).toBe('new')
+  })
+
+  test('a real new prompt with the same words as an earlier follow-up is not mistaken for it', async () => {
+    let list = startTurn(addPrompt([], 'migrate the table'), 't1', 'migrate the table')
+    list = completeTurn(addFollowUp(list, 't1', 'ok'), 't1', 'done', 1)
+    list = startTurn(addPrompt(list, 'ok'), 't2', 'ok')
+    expect(list.map(entry => [entry.prompt, entry.turnId, entry.followUps])).toEqual([
+      ['migrate the table', 't1', ['ok']],
+      ['ok', 't2', []],
+    ])
+  })
+
+  test('a message typed over a turn is found again after a queued prompt took the next turn', async () => {
+    let list = startTurn(addPrompt([], 'first'), 't1', 'first')
+    list = addPrompt(list, 'queued question') // ctrl+x enter: its own entry, waiting
+    list = addFollowUp(list, 't1', 'and one more thing') // a plain Enter over t1
+    list = completeTurn(list, 't1', 'done', 1)
+    list = completeTurn(startTurn(list, 't2', 'queued question'), 't2', 'answered', 1)
+    list = startTurn(list, 't3', 'and one more thing') // t1 ended before taking it
+    expect(list.map(entry => [entry.prompt, entry.turnId, entry.followUps])).toEqual([
+      ['first', 't1', []],
+      ['queued question', 't2', []],
+      ['and one more thing', 't3', []],
+    ])
   })
 
   test('clips long prompts and takes the first line of words from a reply', async () => {

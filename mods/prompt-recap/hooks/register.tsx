@@ -15,6 +15,8 @@ const MAX_PROMPT = 300
 const MAX_LINE = 200
 const MAX_LOG = 20
 const HEAD = 80
+const LOOSE_MIN = 20 // the shortest head a jump matches loosely
+const PROMOTE_WITHIN = 3 // how far back a message typed over an ended turn is looked for
 const INLINE_ENTRIES = 3 // an inline pane sits above the prompt: keep it short
 
 // Held by the host, so they survive a hot reload of this file and a change of the option.
@@ -282,12 +284,16 @@ async function toggleSummary($: EngineInterface, isOn: boolean) {
 }
 
 // The transcript row of a prompt by its head; loosely, where the row's text and the typed text part
-// ways after their start (a paste, a rewrite). The same head typed twice finds the row drawn last.
+// ways after their start (a paste, a rewrite), but only for heads long enough not to match by chance
+// ("ok" is no start of "ok, go ahead"). The same head typed twice finds the row drawn last.
 export function findRow(rows: Map<string, string>, key: string): string | undefined {
   const exact = rows.get(key)
-  if (exact || key === '') return exact
-  for (const [text, requestId] of rows) if (text !== '' && (text.startsWith(key) || key.startsWith(text))) return requestId
-  return undefined
+  if (exact || key.length < LOOSE_MIN) return exact
+  let found: string | undefined
+  for (const [text, requestId] of rows) {
+    if (text.length >= LOOSE_MIN && (text.startsWith(key) || key.startsWith(text))) found = requestId
+  }
+  return found
 }
 
 // Scrolls the transcript to a prompt's row; says why when it cannot.
@@ -370,15 +376,16 @@ export function addFollowUp(list: RecapEntry[], turnId: string, text: string): R
 }
 
 // The newest prompt with no turn yet is the one this turn answers; a turn nobody typed for is left out.
-// A turn with no text (a continuation) answers no prompt. A message typed over the last turn that ended
-// before taking it starts this one: it leaves that entry's follow-ups and becomes a prompt of its own.
+// A turn with no text (a continuation) answers no prompt. A message typed over a turn that ended before
+// taking it starts this one: it leaves that entry's follow-ups and becomes a prompt of its own.
 export function startTurn(list: RecapEntry[], turnId: string, text: string): RecapEntry[] {
   const last = list.at(-1)
   if (!last) return list
   if (last.turnId === '' && !last.isDone) return text !== '' || last.prompt === '' ? withTurn(list, turnId) : list
-  const typed = last.followUps.at(-1)
-  if (text === '' || typed === undefined || head(typed) !== head(text)) return list
-  const kept = [...list.slice(0, -1), { ...last, followUps: last.followUps.slice(0, -1) }]
+  if (text === '') return list
+  const i = findLastIndex(list, (entry, k) => k >= list.length - PROMOTE_WITHIN && entry.isDone && head(entry.followUps.at(-1) ?? '') === head(text))
+  if (i < 0) return list
+  const kept = list.map((entry, k) => (k === i ? { ...entry, followUps: entry.followUps.slice(0, -1) } : entry))
   return withTurn(addPrompt(kept, text), turnId)
 }
 
@@ -426,7 +433,7 @@ export function duration(ms: number) {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
 }
 
-function findLastIndex<T>(list: T[], test: (item: T) => boolean) {
-  for (let i = list.length - 1; i >= 0; i--) if (test(list[i] as T)) return i
+function findLastIndex<T>(list: T[], test: (item: T, index: number) => boolean) {
+  for (let i = list.length - 1; i >= 0; i--) if (test(list[i] as T, i)) return i
   return -1
 }
