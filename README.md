@@ -72,7 +72,8 @@ With summaries on, a small model (Haiku) is called once after each turn you type
 
 #### Notes
 
-- The pane docks on the right, and jumping scrolls the conversation, only in the fullscreen view: `"tui": "fullscreen"` in `~/.claude/settings.json`. In the classic view the pane sits above the prompt and shows the last 3 entries.
+- The pane docks on the right, and jumping scrolls the conversation, only in the fullscreen view: `"tui": "fullscreen"` in `~/.claude/settings.json`. In the classic view the pane sits above the prompt and shows the last 3 entries; the Full recap button is hidden there, but `/prompt-recap recap` still works.
+- Clear empties the pane, not the conversation: a turn still running keeps going, and what it does next shows up again.
 - Pane hotkeys work while the pane holds the keyboard (click it, or ctrl+x tab). Press Esc to go back to the prompt.
 - The list lives for the session. `/clear` and `/resume` empty it, and questions from before a resume are not listed.
 - Slash commands, background notifications and prompts other mods send are left out. Turns that end in an error, a refusal or an interrupt are not summarized (no model call).
@@ -149,7 +150,8 @@ claude plugin install prompt-recap --marketplace jangjaeyong/drake-mods
 
 #### 참고
 
-- 오른쪽에 붙는 창과 질문 위치로 이동은 fullscreen 화면에서만 된다. `~/.claude/settings.json` 에 `"tui": "fullscreen"`. 기본 화면에서는 창이 입력창 위에 붙고 최근 3개만 보인다.
+- 오른쪽에 붙는 창과 질문 위치로 이동은 fullscreen 화면에서만 된다. `~/.claude/settings.json` 에 `"tui": "fullscreen"`. 기본 화면에서는 창이 입력창 위에 붙고 최근 3개만 보인다. 이때 Full recap 버튼은 숨겨지지만 `/prompt-recap recap` 은 동작한다.
+- Clear 는 창만 비우고 대화는 그대로다: 도는 중인 턴은 계속 진행되고, 그 뒤 하는 일은 다시 창에 나타난다.
 - 창 단축키는 창에 포커스가 있을 때(창 클릭 또는 ctrl+x tab) 동작한다. Esc 로 입력창에 돌아간다.
 - 목록은 세션 안에서만 쌓인다. `/clear`, `/resume` 하면 비워지고, resume 이전 질문은 나오지 않는다.
 - 슬래시 커맨드, 백그라운드 알림, 다른 mod 가 보낸 프롬프트는 넣지 않는다. 오류·거부·중단으로 끝난 턴은 요약하지 않는다(모델 호출 없음).

@@ -6,7 +6,7 @@
     {
       "name": "prompt-recap",
       "description": "Your prompts, what you added mid-turn and how each turn ended, plus the session's goal, what's happening now, what's waiting on you and the next step, in a pane beside the chat. Press a prompt to jump back to it.",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "source": "./mods/prompt-recap"
     }
   ]

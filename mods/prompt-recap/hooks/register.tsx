@@ -17,6 +17,7 @@ const MAX_LOG = 20
 const HEAD = 80
 const LOOSE_MIN = 20 // the shortest head a jump matches loosely
 const PROMOTE_WITHIN = 3 // how far back a message typed over an ended turn is looked for
+const RECENT_PROMPTS = 4 // your last prompts the summary reads, so the goal follows where you are now
 const INLINE_ENTRIES = 3 // an inline pane sits above the prompt: keep it short
 
 // Held by the host, so they survive a hot reload of this file and a change of the option.
@@ -41,9 +42,13 @@ export const register: Register = (on, options) => {
     return r
   })
 
-  // /clear and /resume go on in this process under another session: it starts empty.
+  // /clear and /resume go on in this process under another session: it starts empty, its transcript too.
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear' || e.reason === 'resume') await clearAll($).catch(() => {})
+    if (e.reason === 'clear' || e.reason === 'resume') {
+      lastTurnId = '' // a summary still on its way belongs to the session that ended
+      rows.clear()
+      await clearAll($).catch(() => {})
+    }
     return next(e)
   })
 
@@ -95,9 +100,12 @@ export const register: Register = (on, options) => {
     const entry = list.find(one => one.turnId === e.turnId)
     if (!entry) return r // a turn nobody typed for (a notification's) is not "the last one" either
     lastTurnId = e.turnId
+    // With summaries off the recap on top goes stale with each turn: drop it, so none shows when they come back.
+    if (!isSummaryOn) await update($, recap, () => null)
     // Only answered turns you typed for are summarized, in the background, so the turn ends at once.
-    if (isSummaryOn && e.reason === 'answer' && e.answer !== '') {
-      void summarize($, entry, log, e.answer, turnId => turnId === lastTurnId).catch(() => {})
+    else if (e.reason === 'answer' && e.answer !== '') {
+      const recent = list.slice(-RECENT_PROMPTS).map(one => one.prompt)
+      void summarize($, entry, recent, log, e.answer, turnId => turnId === lastTurnId).catch(() => {})
     }
     return r
   })
@@ -115,6 +123,7 @@ export const register: Register = (on, options) => {
       return { text: deny ? `Summaries not changed: ${deny}` : `Summaries ${args[1]}` }
     }
     if (args[0] === 'clear') {
+      lastTurnId = '' // a summary still on its way is dropped, not shown over the empty list
       await clearAll($)
       return { text: 'Prompt Recap cleared' }
     }
@@ -162,7 +171,15 @@ export const register: Register = (on, options) => {
             {!isInline && <Button key="full" label="Full recap" hotkey="r" dimColor onPress={() => void fullRecap($).catch(() => {})} />}
             <Button key="summary" label={`Summary: ${isSummaryOn ? 'on' : 'off'}`} hotkey="s" dimColor onPress={() => void toggleSummary($, !isSummaryOn)} />
             {/* No hotkey: a letter typed while the pane holds the keys must not wipe the list. */}
-            <Button key="clear" label="Clear" dimColor onPress={() => void clearAll($)} />
+            <Button
+              key="clear"
+              label="Clear"
+              dimColor
+              onPress={() => {
+                lastTurnId = '' // a summary still on its way is dropped, not shown over the empty list
+                void clearAll($).catch(() => {})
+              }}
+            />
           </Box>
         </Box>
 
@@ -210,9 +227,18 @@ export const register: Register = (on, options) => {
   })
 }
 
-// The model reads a turn and writes its summary and the session's recap. `isLatest` says whether the
-// turn is still the last one to end: an older turn's late answer leaves the newer recap on top.
-async function summarize($: EngineInterface, entry: RecapEntry, tools: string[], answer: string, isLatest: (turnId: string) => boolean) {
+// The model reads a turn and writes its summary and the session's recap. `recent` is your last few
+// prompts, oldest first, so the goal follows where you are now rather than where you started. `isLatest`
+// says whether the turn is still the last one to end: an older turn's late answer leaves the newer recap
+// on top, and after Clear none is.
+async function summarize(
+  $: EngineInterface,
+  entry: RecapEntry,
+  recent: string[],
+  tools: string[],
+  answer: string,
+  isLatest: (turnId: string) => boolean,
+) {
   const before = await read($, recap)
   const r = await $.model.complete({
     model: MODEL,
@@ -220,13 +246,14 @@ async function summarize($: EngineInterface, entry: RecapEntry, tools: string[],
     system:
       'You keep a one-glance recap of a coding session. Plain words, no em dashes, each field at most 70 ' +
       'characters, written in the language the person writes in. Reply with JSON only, no code fence: {"goal","now","waiting","next"}. ' +
-      '"goal": what the person is working toward now, judged from their latest messages (keep the previous goal ' +
-      'while they stay on it, and replace it once they move on to another task or a new stage of it). ' +
+      '"goal": what the person is working toward now. Write it fresh from their recent messages; reuse the ' +
+      "previous goal's wording only while those messages still serve it. " +
       '"now": what this turn did, as its result. "waiting": what the assistant is waiting on from the person, or "". ' +
       '"next": the next step.',
     prompt: [
-      `Previous recap: ${before ? JSON.stringify(before) : 'none'}`,
-      `The person's message: ${entry.prompt}`,
+      `Previous goal: ${before?.goal || 'none'}`,
+      `The person's recent messages, oldest first:\n${recent.map(text => `- ${text}`).join('\n')}`,
+      `The person's message this turn: ${entry.prompt}`,
       entry.followUps.length > 0 ? `What the person added while the turn ran: ${entry.followUps.join(' / ')}` : '',
       `Tools used this turn: ${tools.join('; ') || 'none'}`,
       `The assistant's reply: ${answer.slice(0, 2500)}`,
@@ -241,10 +268,15 @@ async function summarize($: EngineInterface, entry: RecapEntry, tools: string[],
   if (isLatest(entry.turnId)) await update($, recap, () => parsed)
 }
 
+let fullAsked = 0 // which Full recap is the one waited for: a Hide, a Clear or a newer ask drops the others
+
 // The longer recap: the last messages of the conversation in a few bullets, shown in the pane.
 async function fullRecap($: EngineInterface) {
   if ((await read($, full))?.isLoading) return
+  const asked = ++fullAsked
   await update($, full, () => ({ text: '', isLoading: true }))
+  // Lands only if it is still the one waited for: hidden or cleared meanwhile, it stays gone.
+  const land = (text: string) => update($, full, now => (now?.isLoading && asked === fullAsked ? { text, isLoading: false } : now))
   try {
     const messages = (await $.session.messages()).slice(-12)
     const r = await $.model.complete({
@@ -262,9 +294,9 @@ async function fullRecap($: EngineInterface) {
         'Write the recap of the transcript above now: the bullets only, not a reply to it.',
       ].join('\n\n'),
     })
-    await update($, full, () => ({ text: r.isAnswered ? r.text.trim() : 'Could not build a recap right now.', isLoading: false }))
+    await land(r.isAnswered ? r.text.trim() : 'Could not build a recap right now.')
   } catch {
-    await update($, full, () => ({ text: 'Could not build a recap right now.', isLoading: false }))
+    await land('Could not build a recap right now.')
   }
 }
 
@@ -274,11 +306,10 @@ async function clearAll($: EngineInterface) {
 }
 
 // Writes the option as the /config menu would; the module then reloads with it. Answers why it did not.
-// Turning summaries off drops the recap on top first (the write reloads this module), so turning them
-// on again shows no stale one.
+// The recap on top is left alone here: a refused write changes nothing, and with summaries off each turn
+// that ends drops it (turn.complete), so none is stale when they come back.
 async function setSummary($: EngineInterface, isOn: boolean): Promise<string | undefined> {
   try {
-    if (!isOn) await update($, recap, () => null)
     return (await $.config.set({ key: CONFIG_KEY, value: isOn ? 'on' : 'off' })).deny
   } catch (err) {
     return (err as Error).message

@@ -193,6 +193,8 @@ describe('prompt-recap', () => {
 
     expect(asked).toHaveLength(1)
     expect(asked[0]).toContain('로그인 페이지 추가해줘')
+    expect(asked[0]).toContain("The person's recent messages, oldest first:\n- 로그인 페이지 추가해줘")
+    expect(asked[0]).toContain('Previous goal: none')
     const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
     expect(await ui.find({ type: 'Text', text: /◆ Goal: 로그인 기능 완성/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /next: 로그아웃 버튼/ })).toBeDefined()
@@ -244,27 +246,82 @@ describe('prompt-recap', () => {
     expect(await ui.find({ type: 'Text', text: /◆ Goal/ })).toBeUndefined()
     await ui.unmount()
 
-    await ask('add a logout button', 't2') // numbering starts over
+    await ask('add a logout button', 't2')
+    ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: '#1 ' })).toBeDefined() // numbering starts over
+    expect(await ui.find({ type: 'Text', text: '#2 ' })).toBeUndefined()
+    await ui.unmount()
     expect((await $.command.run({ command: 'prompt-recap', args: 'clear' } as any)).text).toBe('Prompt Recap cleared')
     ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
     expect(await ui.find({ type: 'Text', text: /No prompts yet/ })).toBeDefined()
     await ui.unmount()
   })
 
-  test('turning summaries off drops the recap on top, so none is stale when they come back', async ($, on) => {
+  test('a summary still on its way when you Clear does not bring the recap back', async ($, on) => {
     engine(on)
-    on('model.complete', () => ({ value: { isAnswered: true, text: '{"goal":"old goal","now":"x","waiting":"","next":"y"}', usage } }))
-    on('config.set', (_$: any, e: any) => ({ value: e.value }))
+    let release = () => {}
+    const gate = new Promise<void>(resolve => (release = resolve))
+    on('model.complete', async () => {
+      await gate
+      return { value: { isAnswered: true, text: '{"goal":"back from the dead","now":"x","waiting":"","next":"y"}', usage } }
+    })
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await $.prompt.submit({ text: 'first', origin: typed, wait: false } as any)
+    await $.turn.start({ text: 'first', turnId: 't1' } as any)
+    await $.turn.complete({ reason: 'answer', answer: 'done', durationMs: 1, isAborted: false, turnId: 't1' } as any)
+    await $.command.run({ command: 'prompt-recap', args: 'clear' } as any)
+    release()
+    await settle()
+
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /◆ Goal/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /No prompts yet/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('a full recap still on its way when you Clear or Hide stays gone', async ($, on) => {
+    engine(on)
+    let release = () => {}
+    let gate = new Promise<void>(resolve => (release = resolve))
+    on('model.complete', async () => {
+      await gate
+      return { value: { isAnswered: true, text: '- should not show', usage } }
+    })
+    on('session.messages', () => ({ value: [] }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+
+    await $.command.run({ command: 'prompt-recap', args: 'recap' } as any)
+    await $.command.run({ command: 'prompt-recap', args: 'clear' } as any)
+    release()
+    await settle()
+    let ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: '- should not show' })).toBeUndefined()
+    await ui.unmount()
+
+    gate = new Promise<void>(resolve => (release = resolve))
+    await $.command.run({ command: 'prompt-recap', args: 'recap' } as any)
+    ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: 'writing…' })).toBeDefined()
+    await ui.press({ key: 'hide' })
+    release()
+    await settle()
+    expect(await ui.find({ type: 'Text', text: '- should not show' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test('a refused option write leaves the recap on top as it was', async ($, on) => {
+    engine(on)
+    on('model.complete', () => ({ value: { isAnswered: true, text: '{"goal":"keep me","now":"x","waiting":"","next":"y"}', usage } }))
+    on('config.set', () => ({ deny: 'a managed setting owns it' }))
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
     await $.prompt.submit({ text: 'first', origin: typed, wait: false } as any)
     await $.turn.start({ text: 'first', turnId: 't1' } as any)
     await $.turn.complete({ reason: 'answer', answer: 'done', durationMs: 1, isAborted: false, turnId: 't1' } as any)
     await settle()
 
-    await $.command.run({ command: 'prompt-recap', args: 'summary off' } as any)
-    // The option still reads "on" here (a test does not reload the module), so the top would show a recap if one were kept.
+    expect((await $.command.run({ command: 'prompt-recap', args: 'summary off' } as any)).text).toBe('Summaries not changed: a managed setting owns it')
     const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
-    expect(await ui.find({ type: 'Text', text: /◆ Goal: old goal/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /◆ Goal: keep me/ })).toBeDefined()
     await ui.unmount()
   })
 
