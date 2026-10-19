@@ -387,6 +387,35 @@ describe('boot-console', () => {
     await clock.settle()
   })
 
+  test('a second Stop while the first waits for the JVM keeps Run out until it has ended', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    mock.env(on, {})
+    const jvms = javas()
+    const w = world(on, { gradle: gradleOk, java: jvms.child })
+    await $.session.start(start(WIN))
+    await $.command.run({ command: 'boot-console', args: 'run' } as any)
+    await clock.settle()
+
+    const first = $.command.run({ command: 'boot-console', args: 'stop' } as any)
+    await clock.settle()
+    const second = $.command.run({ command: 'boot-console', args: 'stop' } as any)
+    await clock.settle()
+    await $.command.run({ command: 'boot-console', args: 'run' } as any) // the old JVM has not ended yet
+    await clock.settle()
+    expect(w.spawns).toHaveLength(2)
+
+    jvms.release(0)
+    await Promise.all([first, second])
+    await clock.settle()
+    expect(jvms.ends).toEqual([0])
+    expect(w.spawns).toHaveLength(2)
+    const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /■ stopped/ })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'run' })).toBeDefined()
+    await ui.unmount()
+  })
+
   test('without a local profile none is picked: no guess that could be prod', async ($, on) => {
     const clock = mock.clock(on, { now: 1_000 })
     mock.store(on)

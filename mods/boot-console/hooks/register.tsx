@@ -63,6 +63,7 @@ const rt = {
   run: 0, // the current run's id: pieces and ends of older runs are dropped
   isActive: false, // a Run or Build is under way: another press waits for Stop
   child: undefined as HookStream<ProcessSpawnChunk, ProcessSpawnResult> | undefined,
+  stopping: undefined as Promise<void> | undefined, // the Stop under way, which a second one joins
   lines: [] as Line[],
   isRedrawDue: false,
 }
@@ -226,7 +227,17 @@ async function buildOnly($: EngineInterface) {
 
 // Ends what is running (the app, or the build under way) and drops whatever it still says. A new
 // Run waits until the old JVM has ended, so its port is free; with nothing running it changes nothing.
-async function stop($: EngineInterface) {
+// A second Stop while one is under way joins it rather than letting a Run in early.
+function stop($: EngineInterface): Promise<void> {
+  if (rt.stopping) return rt.stopping
+  const stopping = stopNow($).finally(() => {
+    if (rt.stopping === stopping) rt.stopping = undefined
+  })
+  rt.stopping = stopping
+  return stopping
+}
+
+async function stopNow($: EngineInterface) {
   const child = rt.child
   const wasActive = rt.isActive || child !== undefined
   rt.run++
