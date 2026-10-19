@@ -1,6 +1,6 @@
 {
   "name": "prompt-recap",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Your prompts, what you added mid-turn and how each turn ended, plus the session's goal, what's happening now, what's waiting on you and the next step, in a pane beside the chat. Press a prompt to jump back to it.",
   "author": {
     "name": "jangjaeyong",
@@ -11,7 +11,7 @@
     "summary": {
       "type": "string",
       "title": "Turn summaries",
-      "description": "on: after each of your turns a small model (Haiku) writes the turn's summary and the session's goal, waiting and next step. off: no model calls; the reply's first line stands in. /prompt-recap summary on|off changes it too.",
+      "description": "on: after each of your turns a small model (Haiku) writes the turn's summary and the session's goal, waiting and next step. off: no automatic model calls; the reply's first line stands in (Full recap still runs when you press it). /prompt-recap summary on|off changes it too.",
       "default": "on",
       "options": ["on", "off"]
     }

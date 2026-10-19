@@ -36,21 +36,14 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'prompt-recap',
       description: 'Show your prompts and how each turn ended in a pane',
-      argumentHint: '[recap | summary on|off]',
+      argumentHint: '[recap | clear | summary on|off]',
     }).catch(() => {}) // a name Claude Code already has is refused: start anyway
     return r
   })
 
   // /clear and /resume go on in this process under another session: it starts empty.
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear' || e.reason === 'resume') {
-      await Promise.all([
-        update($, entries, () => []),
-        update($, recap, () => null),
-        update($, live, () => ''),
-        update($, full, () => null),
-      ]).catch(() => {})
-    }
+    if (e.reason === 'clear' || e.reason === 'resume') await clearAll($).catch(() => {})
     return next(e)
   })
 
@@ -121,10 +114,13 @@ export const register: Register = (on, options) => {
       const deny = await setSummary($, args[1] === 'on')
       return { text: deny ? `Summaries not changed: ${deny}` : `Summaries ${args[1]}` }
     }
+    if (args[0] === 'clear') {
+      await clearAll($)
+      return { text: 'Prompt Recap cleared' }
+    }
     await $.ui.open({ id: PANE, title: TITLE })
     if (args[0] === 'recap') {
-      if (!isSummaryOn) return { text: 'Summaries are off: /prompt-recap summary on' }
-      void fullRecap($).catch(() => {})
+      void fullRecap($).catch(() => {}) // asked for: it runs with summaries off too
       return { text: 'Writing a full recap in the Prompt Recap pane' }
     }
     return { text: 'Prompt Recap opened' }
@@ -135,7 +131,7 @@ export const register: Register = (on, options) => {
     const list = await read($, entries)
     const now = await read($, live)
     const glance = isSummaryOn ? await read($, recap) : null
-    const longer = isSummaryOn ? await read($, full) : null
+    const longer = await read($, full)
     const isInline = e.props.placement === 'inline'
     const shown = isInline ? list.slice(-INLINE_ENTRIES) : list
     const nowText = now || glance?.now || ''
@@ -163,8 +159,10 @@ export const register: Register = (on, options) => {
           )}
           {glance && glance.waiting !== '' && <Text color="yellow" wrap="wrap">{`  waiting on you: ${glance.waiting}`}</Text>}
           <Box flexDirection="row" gap={1}>
-            {isSummaryOn && !isInline && <Button key="full" label="Full recap" hotkey="r" dimColor onPress={() => void fullRecap($).catch(() => {})} />}
+            {!isInline && <Button key="full" label="Full recap" hotkey="r" dimColor onPress={() => void fullRecap($).catch(() => {})} />}
             <Button key="summary" label={`Summary: ${isSummaryOn ? 'on' : 'off'}`} hotkey="s" dimColor onPress={() => void toggleSummary($, !isSummaryOn)} />
+            {/* No hotkey: a letter typed while the pane holds the keys must not wipe the list. */}
+            <Button key="clear" label="Clear" dimColor onPress={() => void clearAll($)} />
           </Box>
         </Box>
 
@@ -190,11 +188,11 @@ export const register: Register = (on, options) => {
               <Text color="cyan" bold>{`#${entry.id} `}</Text>
               {entry.prompt}
             </Button>
-            {entry.followUps.map(text => (
-              <Text wrap="wrap">
+            {entry.followUps.map((text, i) => (
+              <Button key={`jump:${entry.id}:${i + 1}`} plain onPress={() => void jump($, findRow(rows, head(text)))}>
                 <Text dimColor>{'  + '}</Text>
                 {text}
-              </Text>
+              </Button>
             ))}
             {entry.isDone ? (
               <Text wrap="wrap">
@@ -222,7 +220,8 @@ async function summarize($: EngineInterface, entry: RecapEntry, tools: string[],
     system:
       'You keep a one-glance recap of a coding session. Plain words, no em dashes, each field at most 70 ' +
       'characters, written in the language the person writes in. Reply with JSON only, no code fence: {"goal","now","waiting","next"}. ' +
-      '"goal": the overall aim of the session (keep the previous goal unless it clearly changed). ' +
+      '"goal": what the person is working toward now, judged from their latest messages (keep the previous goal ' +
+      'while they stay on it, and replace it once they move on to another task or a new stage of it). ' +
       '"now": what this turn did, as its result. "waiting": what the assistant is waiting on from the person, or "". ' +
       '"next": the next step.',
     prompt: [
@@ -269,9 +268,17 @@ async function fullRecap($: EngineInterface) {
   }
 }
 
+// Empties the pane: the list, the recap on top, what is happening now and the full recap.
+async function clearAll($: EngineInterface) {
+  await Promise.all([update($, entries, () => []), update($, recap, () => null), update($, live, () => ''), update($, full, () => null)])
+}
+
 // Writes the option as the /config menu would; the module then reloads with it. Answers why it did not.
+// Turning summaries off drops the recap on top first (the write reloads this module), so turning them
+// on again shows no stale one.
 async function setSummary($: EngineInterface, isOn: boolean): Promise<string | undefined> {
   try {
+    if (!isOn) await update($, recap, () => null)
     return (await $.config.set({ key: CONFIG_KEY, value: isOn ? 'on' : 'off' })).deny
   } catch (err) {
     return (err as Error).message

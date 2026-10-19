@@ -154,12 +154,13 @@ describe('prompt-recap', () => {
     expect(await ui.find({ type: 'Text', text: '#1 ' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '#2 ' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '#3 ' })).toBeUndefined() // the slash command is not a prompt
-    expect(await ui.find({ type: 'Text', text: /use the existing form styles/ })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'jump:1:1', text: /use the existing form styles/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /→ Added the login page\.$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /1m 23s/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /… working/ })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'summary', text: 'Summary: off' })).toBeDefined()
-    expect(await ui.find({ type: 'Button', key: 'full' })).toBeUndefined() // it needs the model
+    expect(await ui.find({ type: 'Button', key: 'full' })).toBeDefined() // asked for, so it runs with summaries off too
+    expect(await ui.find({ type: 'Button', key: 'clear' })).toBeDefined()
     await ui.unmount()
   })
 
@@ -202,17 +203,69 @@ describe('prompt-recap', () => {
     await ui.unmount()
   })
 
-  test('with summaries off, the model is never called', off, async ($, on) => {
+  test('with summaries off, turns cost no model call; a full recap asked for costs one', off, async ($, on) => {
     engine(on)
     let calls = 0
-    on('model.complete', () => (calls++, { value: { isAnswered: true, text: '{}', usage } }))
+    on('model.complete', () => (calls++, { value: { isAnswered: true, text: '- the goal\n- what is done', usage } }))
+    on('session.messages', () => ({ value: [{ role: 'user', text: 'hello', toolUses: [] }] }))
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
     await $.prompt.submit({ text: 'hello', origin: typed, wait: false } as any)
     await $.turn.start({ text: 'hello', turnId: 't1' } as any)
     await $.turn.complete({ reason: 'answer', answer: 'hi', durationMs: 1, isAborted: false, turnId: 't1' } as any)
     await settle()
     expect(calls).toBe(0)
-    expect((await $.command.run({ command: 'prompt-recap', args: 'recap' } as any)).text).toBe('Summaries are off: /prompt-recap summary on')
+
+    expect((await $.command.run({ command: 'prompt-recap', args: 'recap' } as any)).text).toBe('Writing a full recap in the Prompt Recap pane')
+    await settle()
+    expect(calls).toBe(1)
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: '- what is done' })).toBeDefined()
+    await ui.press({ key: 'hide' })
+    expect(await ui.find({ type: 'Text', text: '- what is done' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test('Clear and /prompt-recap clear empty the pane', async ($, on) => {
+    engine(on)
+    on('model.complete', () => ({ value: { isAnswered: true, text: '{"goal":"ship login","now":"added it","waiting":"","next":"tests"}', usage } }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    const ask = async (text: string, turnId: string) => {
+      await $.prompt.submit({ text, origin: typed, wait: false } as any)
+      await $.turn.start({ text, turnId } as any)
+      await $.turn.complete({ reason: 'answer', answer: 'done', durationMs: 1, isAborted: false, turnId } as any)
+      await settle()
+    }
+    await ask('add a login page', 't1')
+
+    let ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /◆ Goal: ship login/ })).toBeDefined()
+    await ui.press({ key: 'clear' })
+    expect(await ui.find({ type: 'Text', text: /No prompts yet/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /◆ Goal/ })).toBeUndefined()
+    await ui.unmount()
+
+    await ask('add a logout button', 't2') // numbering starts over
+    expect((await $.command.run({ command: 'prompt-recap', args: 'clear' } as any)).text).toBe('Prompt Recap cleared')
+    ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /No prompts yet/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('turning summaries off drops the recap on top, so none is stale when they come back', async ($, on) => {
+    engine(on)
+    on('model.complete', () => ({ value: { isAnswered: true, text: '{"goal":"old goal","now":"x","waiting":"","next":"y"}', usage } }))
+    on('config.set', (_$: any, e: any) => ({ value: e.value }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await $.prompt.submit({ text: 'first', origin: typed, wait: false } as any)
+    await $.turn.start({ text: 'first', turnId: 't1' } as any)
+    await $.turn.complete({ reason: 'answer', answer: 'done', durationMs: 1, isAborted: false, turnId: 't1' } as any)
+    await settle()
+
+    await $.command.run({ command: 'prompt-recap', args: 'summary off' } as any)
+    // The option still reads "on" here (a test does not reload the module), so the top would show a recap if one were kept.
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /◆ Goal: old goal/ })).toBeUndefined()
+    await ui.unmount()
   })
 
   test('/prompt-recap summary off writes the option', async ($, on) => {
@@ -325,6 +378,27 @@ describe('prompt-recap', () => {
     await ui.press({ key: 'jump:1' })
     expect(toasts.some(text => text.includes('not on screen'))).toBe(false)
     await ui.press({ key: 'jump:2' })
+    expect(toasts.at(-1)).toBe('prompt-recap: that prompt is not on screen to jump to')
+    await ui.unmount()
+    await row.unmount()
+  })
+
+  test('pressing a message added mid-turn finds its own transcript row', off, async ($, on) => {
+    engine(on)
+    const toasts: string[] = []
+    on('ui.toast', (_$: any, e: any) => (toasts.push(e.text), { value: undefined }))
+    on('ui.render', { component: 'UserMessage' }, (_$: any, e: any) => ({ type: 'Text', props: {}, children: [e.props.text] }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await $.prompt.submit({ text: 'add a login page', origin: typed, wait: false } as any)
+    await $.turn.start({ text: 'add a login page', turnId: 't1' } as any)
+    await $.prompt.submit({ text: 'use the existing form styles', origin: typed, wait: false, turnId: 't1' } as any)
+    await $.prompt.submit({ text: 'and a remember-me box', origin: typed, wait: false, turnId: 't1' } as any)
+
+    const row = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', component: 'UserMessage', requestId: 'msg-2', props: { text: 'use the existing form styles', origin: typed, isExpanded: false } } as any)
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    await ui.press({ key: 'jump:1:1' })
+    expect(toasts.some(text => text.includes('not on screen'))).toBe(false)
+    await ui.press({ key: 'jump:1:2' }) // its row was never drawn
     expect(toasts.at(-1)).toBe('prompt-recap: that prompt is not on screen to jump to')
     await ui.unmount()
     await row.unmount()
