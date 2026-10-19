@@ -203,10 +203,10 @@ async function start($: EngineInterface) {
     if (!(await compile($, id, home))) return
     const argv = javaArgv(javaExe(home, rt.isWindows), s.jvmOptions, `${slashed(rt.cwd)}/${ARGS_FILE}`, s.profile)
     note($, `$ ${argv.join(' ')}`)
-    await setStatus($, 'starting', '')
+    await setStatusIf($, id, 'starting')
     if (id !== rt.run) return // stopped meanwhile: start nothing
     const code = await pump($, id, $.process.spawn({ argv, cwd: rt.cwd }), 'out')
-    if (id === rt.run) await setStatus($, code === 0 ? 'stopped' : 'failed', exitText(code))
+    await setStatusIf($, id, code === 0 ? 'stopped' : 'failed', exitText(code))
   } finally {
     if (id === rt.run) rt.isActive = false
   }
@@ -218,23 +218,25 @@ async function buildOnly($: EngineInterface) {
   rt.isActive = true
   const id = ++rt.run
   try {
-    if (await compile($, id, await resolveHome($, await read($, settings)))) await setStatus($, 'built', '')
+    if (await compile($, id, await resolveHome($, await read($, settings)))) await setStatusIf($, id, 'built')
   } finally {
     if (id === rt.run) rt.isActive = false
   }
 }
 
-// Ends what is running (the app, or the build under way) and drops whatever it still says.
+// Ends what is running (the app, or the build under way) and drops whatever it still says. A new
+// Run waits until the old JVM has ended, so its port is free; with nothing running it changes nothing.
 async function stop($: EngineInterface) {
   const child = rt.child
+  const wasActive = rt.isActive || child !== undefined
   rt.run++
-  rt.isActive = false
   rt.child = undefined
   if (child) {
     note($, '■ stopped')
     await child.return(undefined as never).catch(() => {}) // ends the child, even a quiet one
   }
-  await setStatus($, 'stopped', '')
+  rt.isActive = false
+  if (wasActive) await setStatus($, 'stopped', '')
 }
 
 async function restart($: EngineInterface) {
@@ -243,12 +245,14 @@ async function restart($: EngineInterface) {
 }
 
 // Gradle compiles what changed and writes the java argument file. True when it can be started.
+// A run Stop has passed over writes no status: only the current one says where the app is.
 async function compile($: EngineInterface, id: number, home: string): Promise<boolean> {
-  await setStatus($, 'building', '')
+  if (id !== rt.run) return false
+  await setStatusIf($, id, 'building')
   note($, `── ${new Date(await $.clock.now()).toTimeString().slice(0, 8)} ──`)
   await $.fs.write(`${rt.cwd}/${INIT_SCRIPT}`, INIT_GRADLE)
   const env: Record<string, string> = { GRADLE_OPTS: `${(await $.env.get('GRADLE_OPTS')) ?? ''} ${ENCODING.join(' ')}`.trim() }
-  if (home) env.JAVA_HOME = home
+  if (home) env.JAVA_HOME = jdkRoot(home) // the JDK itself, even when the setting names its java
   const argv = gradleArgv(rt.isWindows, await $.env.get('ComSpec'), ['--console=plain', '--no-configuration-cache', '--init-script', INIT_SCRIPT, TASK])
   note($, `$ ${argv.join(' ')}`)
   note($, `java: ${javaExe(home, rt.isWindows)}`)
@@ -257,7 +261,7 @@ async function compile($: EngineInterface, id: number, home: string): Promise<bo
   const code = await pump($, id, $.process.spawn({ argv, cwd: rt.cwd, env }), 'build')
   if (id !== rt.run) return false
   if (code !== 0) {
-    await setStatus($, 'failed', `build ${exitText(code)}`)
+    await setStatusIf($, id, 'failed', `build ${exitText(code)}`)
     return false
   }
   return true
@@ -322,8 +326,8 @@ async function setStatus($: EngineInterface, phase: BootPhase, detail: string) {
   await update($, status, () => ({ phase, since, detail }))
 }
 
-async function setStatusIf($: EngineInterface, id: number, phase: BootPhase) {
-  if (id === rt.run) await setStatus($, phase, '')
+async function setStatusIf($: EngineInterface, id: number, phase: BootPhase, detail = '') {
+  if (id === rt.run) await setStatus($, phase, detail)
 }
 
 // The settings for this project, and the profiles its resources name.
@@ -332,7 +336,8 @@ async function loadSettings($: EngineInterface) {
   const found = profilesFrom(entries.filter(entry => entry.kind === 'file').map(entry => entry.name))
   const saved = ((await $.store.get(storeKey())) ?? {}) as Partial<BootSettings>
   const next: BootSettings = {
-    profile: saved.profile ?? (found.includes('local') ? 'local' : (found[0] ?? '')),
+    // local when the project has it; otherwise none, never a guess that could be prod's
+    profile: saved.profile ?? (found.includes('local') ? 'local' : ''),
     jvmOptions: saved.jvmOptions ?? DEFAULT_JVM_OPTIONS,
     javaHome: saved.javaHome ?? '',
   }
@@ -373,6 +378,14 @@ export function javaExe(home: string, isWindows: boolean): string {
   if (h === '') return 'java'
   if (/(^|[\\/])java(\.exe)?$/i.test(h)) return h
   return `${h}/bin/${isWindows ? 'java.exe' : 'java'}`
+}
+
+// The JDK a setting names, for JAVA_HOME: a path to its java is taken back to the JDK's root.
+export function jdkRoot(home: string): string {
+  return home
+    .trim()
+    .replace(/[\\/]+$/, '')
+    .replace(/[\\/]bin[\\/]java(\.exe)?$/i, '')
 }
 
 export function javaArgv(exe: string, jvmOptions: string, argsFile: string, profile: string): string[] {

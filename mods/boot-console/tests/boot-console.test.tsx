@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Mounted } from 'claude-code/testing'
 
-import { gradleArgv, isStarted, javaArgv, javaExe, profilesFrom, splitChunk, tokenize, tone } from '../hooks/register'
+import { gradleArgv, isStarted, javaArgv, javaExe, jdkRoot, profilesFrom, splitChunk, tokenize, tone } from '../hooks/register'
 
 const PANE = { component: 'Pane', requestId: 'boot-console', props: { title: 'Boot Console', isFocused: false, bodyColumns: 100, placement: 'dock' } }
 const WIN = 'C:/work/demo'
@@ -37,22 +37,51 @@ function javaUp() {
   return { child, release: () => release() }
 }
 
+// A Gradle that compiles until `release` lets it finish.
+function gradleHeld() {
+  let release = () => {}
+  const gate = new Promise<void>(resolve => (release = resolve))
+  async function* child() {
+    yield { stream: 'stdout', text: '> Task :compileJava\n' } as Piece
+    await gate
+    yield { stream: 'stdout', text: 'BUILD SUCCESSFUL in 9s\n' } as Piece
+    return { code: 0, signal: null }
+  }
+  return { child, release: () => release() }
+}
+
+// A JVM per start, each up until its own release; `ends` records the order they end in.
+function javas() {
+  const releases: (() => void)[] = []
+  const ends: number[] = []
+  function child() {
+    const n = releases.length
+    let release = () => {}
+    const gate = new Promise<void>(resolve => (release = resolve))
+    releases.push(() => release())
+    return (async function* () {
+      try {
+        yield { stream: 'stdout', text: `Started DemoApplication in 1.0 seconds (process running for ${n})\n` } as Piece
+        await gate
+        yield { stream: 'stdout', text: 'bye\n' } as Piece
+        return { code: 143, signal: null }
+      } finally {
+        ends.push(n)
+      }
+    })()
+  }
+  return { child, release: (n: number) => releases[n]?.(), ends, count: () => releases.length }
+}
+
 // The engine beneath the mod: files, the pane, and the two children it may start.
-function world(on: any, children: { gradle: Child; java: Child }) {
+function world(on: any, children: { gradle: Child; java: Child }, resources = ['application.yml', 'application-dev.yml', 'application-local.yml']) {
   const spawns: { argv: string[]; cwd?: string; env?: Record<string, string> }[] = []
   const writes: { path: string; text: string }[] = []
   on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.scroll', () => ({}))
-  on('fs.list', () => ({
-    value: [
-      { name: 'application.yml', kind: 'file' },
-      { name: 'application-dev.yml', kind: 'file' },
-      { name: 'application-local.yml', kind: 'file' },
-      { name: 'static', kind: 'dir' },
-    ],
-  }))
+  on('fs.list', () => ({ value: [...resources.map(name => ({ name, kind: 'file' })), { name: 'static', kind: 'dir' }] }))
   on('fs.write', (_$: any, e: any) => (writes.push({ path: String(e.path).replace(/\\/g, '/'), text: e.text }), { value: undefined }))
   on('process.spawn', async function* (_$: any, e: any) {
     spawns.push(e)
@@ -78,6 +107,13 @@ describe('the pieces', () => {
     expect(javaExe('C:\\jdk-25\\bin\\java.exe', true)).toBe('C:\\jdk-25\\bin\\java.exe')
     expect(javaExe('/usr/bin/java', false)).toBe('/usr/bin/java')
     expect(javaExe('', true)).toBe('java')
+  })
+
+  test('gives Gradle the JDK itself as JAVA_HOME, even when the setting names its java', async () => {
+    expect(jdkRoot('C:\\jdk-25\\bin\\java.exe')).toBe('C:\\jdk-25')
+    expect(jdkRoot('/opt/jdk-25/bin/java')).toBe('/opt/jdk-25')
+    expect(jdkRoot('/opt/jdk-25/')).toBe('/opt/jdk-25')
+    expect(jdkRoot('C:\\jdk-25')).toBe('C:\\jdk-25')
   })
 
   test('starts the JVM with your options, UTF-8 output, the argument file and the profile', async () => {
@@ -264,6 +300,125 @@ describe('boot-console', () => {
     expect(w.spawns[1]?.argv[0]).toBe('java')
     java.release()
     await clock.settle()
+  })
+
+  test('a JDK set as its java still gives Gradle a JAVA_HOME it can use', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    mock.store(on, { 'settings:C:/work/demo': { profile: 'local', jvmOptions: '', javaHome: 'C:\\jdk-25\\bin\\java.exe' } })
+    mock.env(on, {})
+    const java = javaUp()
+    const w = world(on, { gradle: gradleOk, java: java.child })
+    await $.session.start(start(WIN))
+    await $.command.run({ command: 'boot-console', args: 'run' } as any)
+    await clock.settle()
+
+    expect(w.spawns[0]?.env?.JAVA_HOME).toBe('C:\\jdk-25')
+    expect(w.spawns[1]?.argv[0]).toBe('C:\\jdk-25\\bin\\java.exe')
+    java.release()
+    await clock.settle()
+  })
+
+  test('Stop during the build ends it, starts no JVM, and offers Run again', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    mock.env(on, {})
+    const gradle = gradleHeld()
+    const w = world(on, { gradle: gradle.child, java: javaUp().child })
+    await $.session.start(start(WIN))
+    await $.command.run({ command: 'boot-console', args: 'run' } as any)
+    await clock.settle()
+
+    const stopping = $.command.run({ command: 'boot-console', args: 'stop' } as any)
+    gradle.release()
+    await stopping
+    await clock.settle()
+
+    expect(w.spawns).toHaveLength(1)
+    const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /■ stopped/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'BUILD SUCCESSFUL in 9s' })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'run' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('a second Run while one is under way does nothing', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    mock.env(on, {})
+    const gradle = gradleHeld()
+    const w = world(on, { gradle: gradle.child, java: javaUp().child })
+    await $.session.start(start(WIN))
+    await $.command.run({ command: 'boot-console', args: 'run' } as any)
+    await clock.settle()
+    await $.command.run({ command: 'boot-console', args: 'run' } as any)
+    await clock.settle()
+
+    expect(w.spawns).toHaveLength(1)
+    const stopping = $.command.run({ command: 'boot-console', args: 'stop' } as any)
+    gradle.release()
+    await stopping
+    await clock.settle()
+  })
+
+  test('Restart ends the old JVM before compiling and starting the new one', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    mock.env(on, {})
+    const jvms = javas()
+    const w = world(on, { gradle: gradleOk, java: jvms.child })
+    await $.session.start(start(WIN))
+    await $.command.run({ command: 'boot-console', args: 'run' } as any)
+    await clock.settle()
+    expect(jvms.count()).toBe(1)
+
+    const restarting = $.command.run({ command: 'boot-console', args: 'restart' } as any)
+    await clock.settle()
+    expect(w.spawns).toHaveLength(2) // nothing new until the old JVM has ended
+    jvms.release(0)
+    await restarting
+    await clock.settle()
+
+    expect(jvms.ends).toEqual([0])
+    expect(w.spawns.map(s => (s.argv.includes('gradlew.bat') ? 'gradle' : 'java'))).toEqual(['gradle', 'java', 'gradle', 'java'])
+    const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /● running since/ })).toBeDefined()
+    await ui.unmount()
+    jvms.release(1)
+    await clock.settle()
+  })
+
+  test('without a local profile none is picked: no guess that could be prod', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    mock.env(on, {})
+    const java = javaUp()
+    const w = world(on, { gradle: gradleOk, java: java.child }, ['application-batch.yml', 'application-prod.yml'])
+    await $.session.start(start(WIN))
+    await $.command.run({ command: 'boot-console', args: 'run' } as any)
+    await clock.settle()
+
+    expect(w.spawns[1]?.argv.some(arg => arg.startsWith('--spring.profiles.active'))).toBe(false)
+    const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...PANE } as any)
+    expect((await ui.find({ type: 'Text', text: /profile/ }))?.text).toMatch(/· no profile$/)
+    await ui.unmount()
+    java.release()
+    await clock.settle()
+  })
+
+  test('Stop with nothing running leaves the status as it was', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    mock.env(on, {})
+    world(on, { gradle: gradleOk, java: javaUp().child })
+    await $.session.start(start(WIN))
+    await $.command.run({ command: 'boot-console', args: 'build' } as any)
+    await clock.settle()
+    await $.command.run({ command: 'boot-console', args: 'stop' } as any)
+    await clock.settle()
+
+    const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /✓ compiled/ })).toBeDefined()
+    await ui.unmount()
   })
 
   test('a fresh load says the app is not running', async ($, on) => {
