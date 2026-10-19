@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { addFollowUp, addPrompt, attachRecap, clip, completeTurn, describe as label, firstLine, parseRecap, short, startTurn } from '../hooks/register'
+import { addFollowUp, addPrompt, attachRecap, clip, completeTurn, describe as label, findRow, firstLine, parseRecap, short, startTurn } from '../hooks/register'
 
 const PANE = { component: 'Pane', requestId: 'prompt-recap', props: { title: 'Prompt Recap', isFocused: false, bodyColumns: 80, placement: 'dock' } }
 const typed = { kind: 'composer' } as const
@@ -24,7 +24,7 @@ function engine(on: any) {
 describe('the list', () => {
   test('a prompt, a follow-up, the end of its turn and then its summary', async () => {
     let list = addPrompt([], 'rename the user table')
-    list = startTurn(list, 't1')
+    list = startTurn(list, 't1', 'rename the user table')
     list = addFollowUp(list, 't1', 'keep the old name as a view')
     list = completeTurn(list, 't1', 'Renamed it.', 12_000)
     expect(list[0]).toMatchObject({ id: 1, turnId: 't1', followUps: ['keep the old name as a view'], answer: 'Renamed it.', isDone: true })
@@ -36,11 +36,42 @@ describe('the list', () => {
   })
 
   test('a turn nobody typed for takes no entry', async () => {
-    let list = completeTurn(startTurn(addPrompt([], 'first'), 't1'), 't1', 'done', 1)
-    list = startTurn(list, 't2') // a background task's notification
+    let list = completeTurn(startTurn(addPrompt([], 'first'), 't1', 'first'), 't1', 'done', 1)
+    list = startTurn(list, 't2', 'A background task finished') // a notification's turn
     list = completeTurn(list, 't2', 'task finished', 1)
     expect(list).toHaveLength(1)
     expect(list[0]!.answer).toBe('done')
+  })
+
+  test('a turn with no text (a continuation) does not take a waiting prompt', async () => {
+    const waiting = addPrompt(completeTurn(startTurn(addPrompt([], 'first'), 't1', 'first'), 't1', 'done', 1), 'second, queued')
+    expect(startTurn(waiting, 't2', '').at(-1)!.turnId).toBe('')
+    expect(startTurn(waiting, 't3', 'second, queued').at(-1)!.turnId).toBe('t3')
+  })
+
+  test('a message typed as the last turn ended starts the next turn as a prompt of its own', async () => {
+    let list = startTurn(addPrompt([], 'add a login page'), 't1', 'add a login page')
+    list = addFollowUp(list, 't1', 'add tests too')
+    list = completeTurn(list, 't1', 'Added it.', 1)
+    list = startTurn(list, 't2', 'add tests too')
+    expect(list.map(entry => [entry.prompt, entry.turnId, entry.followUps])).toEqual([
+      ['add a login page', 't1', []],
+      ['add tests too', 't2', []],
+    ])
+  })
+
+  test('a message delivered into a turn nobody typed for gets an entry of its own for that turn', async () => {
+    const list = addFollowUp(completeTurn(startTurn(addPrompt([], 'first'), 't1', 'first'), 't1', 'done', 1), 'n1', 'what failed?')
+    expect(list.at(-1)).toMatchObject({ prompt: 'what failed?', turnId: 'n1', followUps: [] })
+    expect(list[0]!.followUps).toEqual([])
+  })
+
+  test('finds a prompt row by its head, loosely when the texts part ways', async () => {
+    const rows = new Map([['fix the login bug please', 'm1'], ['[Pasted text #1]', 'm2']])
+    expect(findRow(rows, 'fix the login bug please')).toBe('m1')
+    expect(findRow(rows, 'fix the login bug')).toBe('m1')
+    expect(findRow(rows, 'nothing like it')).toBeUndefined()
+    expect(findRow(rows, '')).toBeUndefined()
   })
 
   test('clips long prompts and takes the first line of words from a reply', async () => {
@@ -160,6 +191,112 @@ describe('prompt-recap', () => {
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
     expect((await $.command.run({ command: 'prompt-recap', args: 'summary off' } as any)).text).toBe('Summaries off')
     expect(writes).toEqual([{ key: 'prompt-recap.summary', value: 'off' }])
+  })
+
+  test('a message typed as the turn ended shows as its own prompt with its own result', off, async ($, on) => {
+    engine(on)
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await $.prompt.submit({ text: 'add a login page', origin: typed, wait: false } as any)
+    await $.turn.start({ text: 'add a login page', turnId: 't1' } as any)
+    await $.prompt.submit({ text: 'add tests too', origin: typed, wait: false, turnId: 't1' } as any)
+    await $.turn.complete({ reason: 'answer', answer: 'Added the page.', durationMs: 1, isAborted: false, turnId: 't1' } as any)
+    await $.turn.start({ text: 'add tests too', turnId: 't2' } as any) // the engine's queue started a turn for it
+    await $.turn.complete({ reason: 'answer', answer: 'Added the tests.', durationMs: 1, isAborted: false, turnId: 't2' } as any)
+
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: '#2 ' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /→ Added the tests\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^ {2}\+ / })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test('a late summary still updates the top when a turn nobody typed for ended meanwhile', async ($, on) => {
+    engine(on)
+    let release = () => {}
+    const gate = new Promise<void>(resolve => (release = resolve))
+    on('model.complete', async () => {
+      await gate
+      return { value: { isAnswered: true, text: '{"goal":"ship login","now":"added the page","waiting":"","next":"tests"}', usage } }
+    })
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await $.prompt.submit({ text: 'add a login page', origin: typed, wait: false } as any)
+    await $.turn.start({ text: 'add a login page', turnId: 't1' } as any)
+    await $.turn.complete({ reason: 'answer', answer: 'Added it.', durationMs: 1, isAborted: false, turnId: 't1' } as any)
+    await $.turn.start({ text: 'A background task finished', turnId: 'n1' } as any)
+    await $.turn.complete({ reason: 'answer', answer: 'Noted.', durationMs: 1, isAborted: false, turnId: 'n1' } as any)
+    release()
+    await settle()
+
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /◆ Goal: ship login/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /→ added the page$/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('turns that end in an error, a refusal or an interrupt cost no model call', async ($, on) => {
+    engine(on)
+    let calls = 0
+    on('model.complete', () => (calls++, { value: { isAnswered: true, text: '{}', usage } }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    const ends = [
+      { reason: 'error', answer: '', isAborted: false },
+      { reason: 'refusal', answer: '', isAborted: false, refusal: {} },
+      { reason: 'aborted', answer: 'half', isAborted: true },
+    ]
+    for (const [i, end] of ends.entries()) {
+      await $.prompt.submit({ text: `question ${i}`, origin: typed, wait: false } as any)
+      await $.turn.start({ text: `question ${i}`, turnId: `t${i}` } as any)
+      await $.turn.complete({ ...end, durationMs: 1, turnId: `t${i}` } as any)
+    }
+    await settle()
+    expect(calls).toBe(0)
+
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /→ \(error\)$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /→ \(refused\)$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /→ \(interrupted\)$/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('a dropped prompt leaves no entry, and /clear empties the list', off, async ($, on) => {
+    on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
+    on('prompt.submit', (_$: any, e: any) => (e.text === 'blocked' ? { drop: 'a settings hook said no' } : { text: e.text }))
+    on('turn.start', (_$: any, e: any) => ({ turnId: e.turnId }))
+    on('session.end', (_$: any, e: any) => ({ sessionId: e.sessionId }))
+    on('command.register', () => ({ value: undefined }) as any)
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+
+    await $.prompt.submit({ text: 'blocked', origin: typed, wait: false } as any)
+    let ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /No prompts yet/ })).toBeDefined()
+    await ui.unmount()
+
+    await $.prompt.submit({ text: 'kept', origin: typed, wait: false } as any)
+    await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as any)
+    ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /No prompts yet/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  // The scroll itself is the engine's (a transcript row is no site of the plugin's, so the kit does not
+  // raise it to a test's hooks): this checks the mod's half, that a press finds the row it was drawn in.
+  test('pressing a prompt finds the transcript row it was drawn in, and says so when it was never drawn', off, async ($, on) => {
+    engine(on)
+    const toasts: string[] = []
+    on('ui.toast', (_$: any, e: any) => (toasts.push(e.text), { value: undefined }))
+    on('ui.render', { component: 'UserMessage' }, (_$: any, e: any) => ({ type: 'Text', props: {}, children: [e.props.text] })) // the engine's own drawing of the row
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+    await $.prompt.submit({ text: 'add a login page', origin: typed, wait: false } as any)
+    await $.prompt.submit({ text: 'never drawn', origin: typed, wait: false } as any)
+
+    const row = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', component: 'UserMessage', requestId: 'msg-1', props: { text: 'add a login page', origin: typed, isExpanded: false } } as any)
+    const ui = await $.ui.mount({ plugin: 'prompt-recap', surface: 'terminal', ...PANE } as any)
+    await ui.press({ key: 'jump:1' })
+    expect(toasts.some(text => text.includes('not on screen'))).toBe(false)
+    await ui.press({ key: 'jump:2' })
+    expect(toasts.at(-1)).toBe('prompt-recap: that prompt is not on screen to jump to')
+    await ui.unmount()
+    await row.unmount()
   })
 
   test('an empty pane says how it fills', off, async ($, on) => {

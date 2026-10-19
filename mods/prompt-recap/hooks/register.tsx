@@ -75,8 +75,8 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     if (!e.agentId) {
       log = []
-      await update($, entries, list => startTurn(list, e.turnId))
-      await update($, live, () => 'reading your message')
+      const list = await update($, entries, all => startTurn(all, e.turnId, e.text))
+      if (list.some(entry => entry.turnId === e.turnId)) await update($, live, () => 'reading your message')
     }
     return next(e)
   })
@@ -94,13 +94,14 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const r = await next(e)
     if (e.agentId) return r
-    lastTurnId = e.turnId
     await update($, live, () => '')
-    const answer = e.isAborted ? '(interrupted)' : firstLine(e.answer)
+    const answer = e.isAborted ? '(interrupted)' : e.reason === 'error' ? '(error)' : e.reason === 'refusal' ? '(refused)' : firstLine(e.answer)
     const list = await update($, entries, all => completeTurn(all, e.turnId, answer, e.durationMs))
     const entry = list.find(one => one.turnId === e.turnId)
-    // Only turns you typed for are summarized, in the background, so the turn ends at once.
-    if (isSummaryOn && entry && !e.isAborted) {
+    if (!entry) return r // a turn nobody typed for (a notification's) is not "the last one" either
+    lastTurnId = e.turnId
+    // Only answered turns you typed for are summarized, in the background, so the turn ends at once.
+    if (isSummaryOn && e.reason === 'answer' && e.answer !== '') {
       void summarize($, entry, log, e.answer, turnId => turnId === lastTurnId).catch(() => {})
     }
     return r
@@ -183,7 +184,7 @@ export const register: Register = (on, options) => {
         {list.length === 0 && <Text dimColor>No prompts yet. Ask something and it shows up here.</Text>}
         {[...shown].reverse().map(entry => (
           <Box key={`entry:${entry.id}`} flexDirection="column">
-            <Button key={`jump:${entry.id}`} plain onPress={() => void jump($, rows.get(entry.head))}>
+            <Button key={`jump:${entry.id}`} plain onPress={() => void jump($, findRow(rows, entry.head))}>
               <Text color="cyan" bold>{`#${entry.id} `}</Text>
               {entry.prompt}
             </Button>
@@ -215,10 +216,10 @@ async function summarize($: EngineInterface, entry: RecapEntry, tools: string[],
   const before = await read($, recap)
   const r = await $.model.complete({
     model: MODEL,
-    maxTokens: 300,
+    maxTokens: 600, // four fields of Korean take more tokens than of English
     system:
       'You keep a one-glance recap of a coding session. Plain words, no em dashes, each field at most 70 ' +
-      'characters, written in the language the person writes in. Reply with JSON only: {"goal","now","waiting","next"}. ' +
+      'characters, written in the language the person writes in. Reply with JSON only, no code fence: {"goal","now","waiting","next"}. ' +
       '"goal": the overall aim of the session (keep the previous goal unless it clearly changed). ' +
       '"now": what this turn did, as its result. "waiting": what the assistant is waiting on from the person, or "". ' +
       '"next": the next step.',
@@ -280,14 +281,26 @@ async function toggleSummary($: EngineInterface, isOn: boolean) {
   if (deny) $.ui.toast(`prompt-recap: summaries not changed (${deny})`)
 }
 
+// The transcript row of a prompt by its head; loosely, where the row's text and the typed text part
+// ways after their start (a paste, a rewrite). The same head typed twice finds the row drawn last.
+export function findRow(rows: Map<string, string>, key: string): string | undefined {
+  const exact = rows.get(key)
+  if (exact || key === '') return exact
+  for (const [text, requestId] of rows) if (text !== '' && (text.startsWith(key) || key.startsWith(text))) return requestId
+  return undefined
+}
+
 // Scrolls the transcript to a prompt's row; says why when it cannot.
 async function jump($: EngineInterface, requestId: string | undefined) {
   if (!requestId) {
     $.ui.toast('prompt-recap: that prompt is not on screen to jump to')
     return
   }
-  const r = await $.ui.scroll({ to: { requestId }, block: 'start' })
-  if (r.deny) $.ui.toast(`prompt-recap: cannot jump there (${r.deny}). The fullscreen view ("tui": "fullscreen") scrolls.`)
+  const deny = await $.ui.scroll({ to: { requestId }, block: 'start' }).then(
+    r => r.deny,
+    (err: Error) => err.message,
+  )
+  if (deny) $.ui.toast(`prompt-recap: cannot jump there (${deny}). The fullscreen view ("tui": "fullscreen") scrolls.`)
 }
 
 // The person's own prompts: typed or sent from a phone, not a slash command, a notification or a plugin's.
@@ -348,19 +361,31 @@ export function addPrompt(list: RecapEntry[], text: string): RecapEntry[] {
   return [...list, entry].slice(-MAX_ENTRIES)
 }
 
-// To the entry of that turn, else the newest; a new entry when there is none.
+// To the entry of that turn. A turn with no entry (a notification's, which your message was delivered
+// into) gets one, with the message as its prompt, so the turn's end finds it.
 export function addFollowUp(list: RecapEntry[], turnId: string, text: string): RecapEntry[] {
-  let i = findLastIndex(list, entry => entry.turnId === turnId)
-  if (i < 0) i = list.length - 1
-  if (i < 0) return addPrompt(list, text)
+  const i = findLastIndex(list, entry => entry.turnId === turnId)
+  if (i < 0) return withTurn(addPrompt(list, text), turnId)
   return list.map((entry, k) => (k === i ? { ...entry, followUps: [...entry.followUps, clip(text, MAX_PROMPT)] } : entry))
 }
 
 // The newest prompt with no turn yet is the one this turn answers; a turn nobody typed for is left out.
-export function startTurn(list: RecapEntry[], turnId: string): RecapEntry[] {
+// A turn with no text (a continuation) answers no prompt. A message typed over the last turn that ended
+// before taking it starts this one: it leaves that entry's follow-ups and becomes a prompt of its own.
+export function startTurn(list: RecapEntry[], turnId: string, text: string): RecapEntry[] {
   const last = list.at(-1)
-  if (!last || last.turnId !== '' || last.isDone) return list
-  return [...list.slice(0, -1), { ...last, turnId }]
+  if (!last) return list
+  if (last.turnId === '' && !last.isDone) return text !== '' || last.prompt === '' ? withTurn(list, turnId) : list
+  const typed = last.followUps.at(-1)
+  if (text === '' || typed === undefined || head(typed) !== head(text)) return list
+  const kept = [...list.slice(0, -1), { ...last, followUps: last.followUps.slice(0, -1) }]
+  return withTurn(addPrompt(kept, text), turnId)
+}
+
+// The newest entry, with that turn.
+function withTurn(list: RecapEntry[], turnId: string): RecapEntry[] {
+  const last = list.at(-1)
+  return last ? [...list.slice(0, -1), { ...last, turnId }] : list
 }
 
 export function completeTurn(list: RecapEntry[], turnId: string, answer: string, durationMs: number): RecapEntry[] {
