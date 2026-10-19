@@ -100,7 +100,8 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 ```
 
 - `Run`: compiles what changed (Gradle `classes`), then starts the app. `Stop`: ends it, and frees its port. `Restart`: Stop, compile, start, as IntelliJ's Rerun. `Build`: compile only; errors show in the log. `Clear`: empty the log.
-- Docked on the right, the top (status, buttons, settings) stays put and only the log scrolls: the wheel (3 lines a tick), the arrows and PageUp/PageDown, with the pane focused for the keys. Scrolled up, new lines don't move what you read, and `Follow` goes back to the end.
+- Docked on the right, the top (status, buttons, settings) stays put and only the log, in its own frame, scrolls: the wheel (3 lines a tick), the arrows and PageUp/PageDown (with the pane focused), or the scrollbar on its right, which you click to jump to a place or drag. Scrolled up, new lines don't move what you read, and `Follow` goes back to the end.
+- The log level alone is coloured, as IntelliJ's console does: INFO green, DEBUG and TRACE gray, WARN yellow, ERROR red. Lines with no level: stack frames dim red, `Caused by:` and build failures red.
 - `Settings`: the profile (picked from `src/main/resources/application-*.yml`, or typed, comma-separated), the JVM options, the JDK home (empty: `JAVA_HOME`) and Gradle args (e.g. `--offline`, before the task). Kept per project; used from the next Run or Restart.
 - From IntelliJ: until you save settings for a project, its IntelliJ Spring Boot run configuration (`.idea/workspace.xml`) gives the profile and the JVM options, so what the app needs from IntelliJ's VM options (a key, a path) comes along. `From IntelliJ` under Settings takes them again. Without one, the JVM options start as `-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true`.
 - A `-D` option whose name holds password, secret, token or credential shows as `****` in the log (it is still passed to the app, and kept in the settings as typed).
@@ -213,7 +214,8 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 ```
 
 - `Run`: 바뀐 것만 컴파일(Gradle `classes`)한 뒤 앱을 띄운다. `Stop`: 앱을 끄고 포트도 비운다. `Restart`: IntelliJ 의 Rerun 처럼 끄고, 컴파일하고, 다시 띄운다. `Build`: 컴파일만, 에러는 로그에. `Clear`: 로그 비우기.
-- 오른쪽에 붙은 창에서는 위쪽(상태·버튼·설정)이 고정되고 로그만 스크롤된다: 휠(한 칸 3줄), 화살표, PageUp/PageDown(키는 창에 포커스가 있을 때). 위로 올려 보는 동안 새 로그가 와도 보던 곳은 그대로이고, `Follow` 로 맨 아래로 돌아간다.
+- 오른쪽에 붙은 창에서는 위쪽(상태·버튼·설정)이 고정되고 테두리 안의 로그만 스크롤된다: 휠(한 칸 3줄), 화살표, PageUp/PageDown(창에 포커스가 있을 때), 또는 오른쪽 스크롤바(클릭하면 그 위치로, 드래그로 이동). 위로 올려 보는 동안 새 로그가 와도 보던 곳은 그대로이고, `Follow` 로 맨 아래로 돌아간다.
+- IntelliJ 콘솔처럼 로그 레벨 글자에만 색을 입힌다: INFO 초록, DEBUG·TRACE 회색, WARN 노랑, ERROR 빨강. 레벨이 없는 줄은 스택트레이스 흐린 빨강, `Caused by:`·빌드 실패 빨강.
 - `Settings`: 프로필(`src/main/resources/application-*.yml` 에서 고르거나, 콤마로 직접 입력), JVM 옵션, JDK 경로(비우면 `JAVA_HOME`), Gradle 인자(예: `--offline`, 태스크 앞에 붙음). 프로젝트별로 기억하고 다음 Run/Restart 부터 적용.
 - IntelliJ 에서 가져오기: 그 프로젝트에서 설정을 저장하기 전까지는 IntelliJ 의 Spring Boot 실행 구성(`.idea/workspace.xml`)에서 프로필과 JVM 옵션을 가져온다. 그래서 IntelliJ VM 옵션에 들어 있던 앱에 필요한 값(키, 경로)도 같이 온다. Settings 의 `From IntelliJ` 로 언제든 다시 가져온다. 실행 구성이 없으면 JVM 옵션 기본값은 `-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true`.
 - 이름에 password, secret, token, credential 이 들어간 `-D` 옵션은 로그에 `****` 로 보인다(앱에는 그대로 넘어가고, 설정에는 입력한 대로 저장된다).

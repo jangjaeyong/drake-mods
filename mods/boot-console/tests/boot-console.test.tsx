@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Mounted } from 'claude-code/testing'
 
-import { gradleArgv, intellijRun, isStarted, javaArgv, javaExe, jdkRoot, maskSecret, profilesFrom, scrolledBack, splitChunk, tokenize, tone, visibleLines } from '../hooks/register'
+import { gradleArgv, intellijRun, isStarted, javaArgv, javaExe, jdkRoot, levelOf, maskSecret, profilesFrom, scrolledBack, splitChunk, tokenize, tone, visibleLines } from '../hooks/register'
+import { backAt, thumb } from '../hooks/scrollbar'
 
 // An IntelliJ workspace file as IntelliJ writes it: a Gradle task, the Spring Boot run, its template.
 const WORKSPACE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -151,11 +152,34 @@ describe('the pieces', () => {
     expect(visibleLines(wide, 0, 3, 10).map(l => l.text[0])).toEqual(['b', 'c']) // b wraps to 3 rows
   })
 
-  test('scrolls the log up and down between its end and its first line', async () => {
-    expect(scrolledBack(0, -3, 100)).toBe(3) // up
-    expect(scrolledBack(3, 5, 100)).toBe(0) // down, no further than the end
-    expect(scrolledBack(90, -50, 100)).toBe(99) // no further than the first line
-    expect(scrolledBack(0, -3, 0)).toBe(0)
+  test('scrolls the log up and down between its end and a screen that starts at its first line', async () => {
+    expect(scrolledBack(0, -3, 100, 10)).toBe(3) // up
+    expect(scrolledBack(3, 5, 100, 10)).toBe(0) // down, no further than the end
+    expect(scrolledBack(80, -50, 100, 10)).toBe(90) // no further than a full screen from the first line
+    expect(scrolledBack(0, -3, 5, 10)).toBe(0) // the whole log fits
+  })
+
+  test('the scrollbar: a press at the top shows the first lines, at the bottom the end; the thumb is the share on screen', async () => {
+    expect(backAt(0, 10, 100)).toBe(90)
+    expect(backAt(9, 10, 100)).toBe(0)
+    expect(backAt(-3, 10, 100)).toBe(90) // dragged past the edge
+    expect(backAt(4, 10, 5)).toBe(0) // the whole log fits
+    expect(thumb(10, 100, 0)).toEqual({ top: 9, size: 1 }) // at the end
+    expect(thumb(10, 100, 90)).toEqual({ top: 0, size: 1 }) // at the start
+    expect(thumb(10, 20, 0)).toEqual({ top: 5, size: 5 }) // half the log on screen
+    expect(thumb(10, 8, 0)).toEqual({ top: 0, size: 0 }) // it all fits: no thumb
+  })
+
+  test('finds the log level in a line, to colour it alone', async () => {
+    expect(levelOf('2026-10-19T13:02:19.123+09:00  INFO 1234 --- [main] c.e.DemoApplication : Started')).toEqual({
+      before: '2026-10-19T13:02:19.123+09:00  ',
+      level: 'INFO',
+      after: ' 1234 --- [main] c.e.DemoApplication : Started',
+    })
+    expect(levelOf('13:02:19 DEBUG jdbc.sqlonly - select 1')?.level).toBe('DEBUG')
+    expect(levelOf('[WARN] slow')?.level).toBe('WARN')
+    expect(levelOf('INFORMATION here')).toBeUndefined() // a word, not a level
+    expect(levelOf('> Task :compileJava')).toBeUndefined()
   })
 
   test('reads the Spring Boot run configuration from an IntelliJ workspace file', async () => {
@@ -209,11 +233,11 @@ describe('the pieces', () => {
     expect(profilesFrom(['application.yml', 'application-local.yml', 'application-dev.yaml', 'application-prod.properties', 'logback.xml'])).toEqual(['dev', 'local', 'prod'])
   })
 
-  test('colours errors, their stack frames, warnings and success', async () => {
-    expect(tone({ text: '2026 ERROR 123 --- [main] o.s.boot.SpringApplication : failed', kind: 'out' })).toEqual({ color: 'red' })
+  test('colours lines without a level: errors, their stack frames, warnings and success; a line with a level keeps its own', async () => {
+    expect(tone({ text: '2026 ERROR 123 --- [main] o.s.boot.SpringApplication : failed', kind: 'out' })).toEqual({}) // its ERROR alone is red
     expect(tone({ text: '\tat com.example.Demo.main(Demo.java:3)', kind: 'out' })).toEqual({ color: 'red', isDim: true })
     expect(tone({ text: 'Caused by: java.net.BindException: Address already in use', kind: 'out' })).toEqual({ color: 'red' })
-    expect(tone({ text: '2026  WARN 123 --- [main] HikariPool-1 : slow', kind: 'out' })).toEqual({ color: 'yellow' })
+    expect(tone({ text: '2026  WARN 123 --- [main] HikariPool-1 : slow', kind: 'out' })).toEqual({}) // its WARN alone is yellow
     expect(tone({ text: 'BUILD SUCCESSFUL in 2s', kind: 'build' })).toEqual({ color: 'green' })
     expect(tone({ text: '> Task :compileJava', kind: 'build' })).toEqual({ isDim: true })
     expect(tone({ text: '2026  INFO 1 --- Tomcat started on port 8080', kind: 'out' })).toEqual({})
@@ -261,6 +285,8 @@ describe('boot-console', () => {
     const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...PANE } as any)
     expect(await ui.find({ type: 'Text', text: /● running since/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Started DemoApplication in 3\.21 seconds/ })).toBeDefined()
+    const level = (await ui.findAll({ type: 'Text', text: /INFO/ })).find(found => found.text === 'INFO') as any
+    expect(level?.props?.color).toBe('green') // the level alone is coloured
     expect(await ui.find({ type: 'Text', text: 'boot-console: com.example.DemoApplication with 3 classpath entries' })).toBeDefined() // a line split across two pieces
     expect(await ui.find({ type: 'Button', key: 'stop' })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'run' })).toBeUndefined()
@@ -616,12 +642,27 @@ describe('boot-console', () => {
     await clock.settle()
 
     const docked = { ...PANE, props: { ...PANE.props, scroll: { offset: 0, bodyRows: 12 } } }
-    const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...docked } as any)
+    const ui = (await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...docked } as any)) as Mounted<'terminal', 'Pane'>
     const tree = (await ui.drawn()) as any
     expect(tree.props).toMatchObject({ height: 12, overflow: 'hidden' })
     expect(await ui.find({ type: 'Button', key: 'stop' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'log line 49' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'log line 0' })).toBeUndefined()
+    expect((await ui.find({ type: 'Box', key: 'log' })) as any).toMatchObject({ props: { borderStyle: 'round' } })
+
+    // The scrollbar: laid out 8 rows tall, a press at its top shows the first lines, at its bottom the end.
+    await ui.resize({ in: 'scrollbar', columns: 1, rows: 8 })
+    await ui.pointer({ in: 'scrollbar', type: 'down', x: 0, y: 0, button: 'left' })
+    await ui.pointer({ in: 'scrollbar', type: 'up', x: 0, y: 0, button: 'left' })
+    expect(await ui.find({ type: 'Text', text: 'log line 0' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'log line 49' })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'follow' })).toBeDefined()
+    // A drag down to the bottom row brings the end back.
+    await ui.pointer({ in: 'scrollbar', type: 'down', x: 0, y: 0, button: 'left' })
+    await ui.pointer({ in: 'scrollbar', type: 'move', x: 0, y: 7, button: 'left' })
+    await ui.pointer({ in: 'scrollbar', type: 'up', x: 0, y: 7, button: 'left' })
+    expect(await ui.find({ type: 'Text', text: 'log line 49' })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'follow' })).toBeUndefined()
     await ui.unmount()
     release()
     await clock.settle()

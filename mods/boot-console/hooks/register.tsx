@@ -70,6 +70,7 @@ const rt = {
   lines: [] as Line[],
   isRedrawDue: false,
   back: 0, // how many lines the log is scrolled up from its end; 0 follows the end
+  logRows: 0, // the rows the log has on screen, as its scrollbar measured them
   isPinned: false, // the pane is docked and held to its height, so its log scrolls here
   // Runs a verb with the session's own $. A press hands its closure the $ of the drawing it was drawn
   // in, and a command the $ of its own dispatch; neither can start a child that outlives them, so the
@@ -110,6 +111,7 @@ export const register: Register = on => {
     const table = $.ui.resolve(e)
     const { Box, Text, Button } = table
     const fields = 'Input' in table ? table : null // the mobile app draws no fields yet
+    const Client = 'Client' in table ? table.Client : null // the scrollbar takes the pointer where a surface has it
     await read($, logVersion) // redraws as the log grows
     const st = await read($, status)
     const s = await read($, settings)
@@ -122,12 +124,15 @@ export const register: Register = on => {
     // this mod (ui.scroll below), not by the engine. Inline above the prompt it keeps its natural height.
     const rows = e.props.scroll?.bodyRows ?? 0
     rt.isPinned = !isInline && rows > 0
+    // The log's own rows, as its scrollbar measured them; until then the body's, the overflow cut.
+    const logRows = rt.logRows > 0 ? rt.logRows : rows
     const shown = isInline
       ? rt.lines.slice(-INLINE_LINES)
-      : visibleLines(rt.lines, rt.back, rt.isPinned ? rows : SHOWN_LINES, e.props.bodyColumns)
+      : visibleLines(rt.lines, rt.back, rt.isPinned ? logRows : SHOWN_LINES, e.props.bodyColumns - 3) // less the frame and the scrollbar
     const head = phaseLabel(st)
     const choices = [...new Set([...found, ...(s.profile ? [s.profile] : [])])]
     const pin = rt.isPinned ? { height: rows, overflow: 'hidden' as const } : {}
+    const frame = rt.isPinned ? { flexGrow: 1, overflow: 'hidden' as const } : {}
     const tail = rt.isPinned ? { flexGrow: 1, overflow: 'hidden' as const, justifyContent: 'flex-end' as const } : {}
 
     return (
@@ -207,16 +212,24 @@ export const register: Register = on => {
             )
           })()}
 
-        <Box key="log" flexDirection="column" {...tail}>
-          {shown.length === 0 && <Text dimColor>Press Run to compile and start the app. Its log shows here.</Text>}
-          {shown.map(line => {
-            const t = tone(line)
-            return (
-              <Text color={t.color} dimColor={t.isDim} wrap="wrap">
-                {line.text}
-              </Text>
-            )
-          })}
+        <Box key="log" flexDirection="row" borderStyle="round" borderDimColor {...frame}>
+          <Box flexDirection="column" flexGrow={1} {...tail}>
+            {shown.length === 0 && <Text dimColor>Press Run to compile and start the app. Its log shows here.</Text>}
+            {shown.map(line => {
+              const t = tone(line)
+              const level = levelOf(line.text)
+              return (
+                <Text color={t.color} dimColor={t.isDim} wrap="wrap">
+                  {level ? level.before : line.text}
+                  {level && <Text color={LEVEL_COLORS[level.level]}>{level.level}</Text>}
+                  {level ? level.after : ''}
+                </Text>
+              )
+            })}
+          </Box>
+          {rt.isPinned && Client && (
+            <Client key="scrollbar" module="./scrollbar.tsx" props={{ total: rt.lines.length, back: rt.back }} width={1} height="100%" />
+          )}
         </Box>
       </Box>
     )
@@ -226,9 +239,25 @@ export const register: Register = on => {
   // the engine's window stays at the top, where the buttons are. Inline, the engine scrolls as usual.
   on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (!rt.isPinned) return next(e)
-    rt.back = scrolledBack(rt.back, e.pointer ? e.by * WHEEL_LINES : e.by, rt.lines.length)
+    rt.back = scrolledBack(rt.back, e.pointer ? e.by * WHEEL_LINES : e.by, rt.lines.length, rt.logRows)
     void update($, logVersion, n => n + 1).catch(() => {})
     return next({ ...e, offset: 0 })
+  })
+
+  // The scrollbar says where to look (a press or a drag) and how many rows the log has on screen.
+  on('ui.message', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    const data = (e.data ?? {}) as { back?: unknown; rows?: unknown }
+    let isMoved = false
+    if (typeof data.rows === 'number' && data.rows > 0 && data.rows !== rt.logRows) {
+      rt.logRows = data.rows
+      isMoved = true
+    }
+    if (typeof data.back === 'number') {
+      rt.back = scrolledBack(data.back, 0, rt.lines.length, rt.logRows)
+      isMoved = true
+    }
+    if (isMoved) void update($, logVersion, n => n + 1).catch(() => {})
+    return next(e)
   })
 }
 
@@ -403,7 +432,7 @@ function note($: EngineInterface, text: string) {
 function add(line: Line) {
   rt.lines.push(line)
   if (rt.lines.length > MAX_LINES) rt.lines.splice(0, rt.lines.length - MAX_LINES)
-  if (rt.back > 0) rt.back = Math.min(rt.back + 1, rt.lines.length - 1)
+  if (rt.back > 0) rt.back = scrolledBack(rt.back, -1, rt.lines.length, rt.logRows)
 }
 
 // Back to the end of the log, following what comes.
@@ -442,9 +471,28 @@ export function visibleLines<T extends { text: string }>(lines: T[], back: numbe
   return out
 }
 
-// Where the log stands after a scroll of `by` rows (negative is up), between its end and its first line.
-export function scrolledBack(back: number, by: number, total: number): number {
-  return Math.min(Math.max(back - by, 0), Math.max(0, total - 1))
+// Where the log stands after a scroll of `by` rows (negative is up): between its end, and the place
+// where its first line tops a screen of `visible` rows.
+export function scrolledBack(back: number, by: number, total: number, visible: number): number {
+  return Math.min(Math.max(back - by, 0), Math.max(0, total - Math.max(1, visible)))
+}
+
+const LEVEL_COLORS: Record<string, string> = {
+  TRACE: 'gray',
+  DEBUG: 'gray',
+  INFO: 'green',
+  WARN: 'yellow',
+  WARNING: 'yellow',
+  ERROR: 'red',
+  FATAL: 'red',
+  SEVERE: 'red',
+}
+
+// The log level in a line, its first, with what stands before and after it, for colouring it alone.
+export function levelOf(text: string): { before: string; level: string; after: string } | undefined {
+  const m = /\b(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|SEVERE)\b/.exec(text)
+  if (!m) return undefined
+  return { before: text.slice(0, m.index), level: m[1] as string, after: text.slice(m.index + m[0].length) }
 }
 
 async function setStatus($: EngineInterface, phase: BootPhase, detail: string) {
@@ -599,15 +647,18 @@ export function isStarted(line: string) {
   return STARTED.test(line)
 }
 
-// How a log line is drawn: errors red, their stack frames dimmer, warnings yellow, Gradle's own dim.
+// How a log line is drawn as a whole. A line with a log level keeps its own colour and only the level
+// is coloured (levelOf), as IntelliJ's console does; without one: errors red, their stack frames dimmer,
+// warnings yellow, Gradle's own dim.
 export function tone(line: { text: string; kind: LineKind }): { color?: string; isDim?: boolean } {
   const t = line.text
   if (line.kind === 'info') return { color: 'cyan' }
   if (/^\s+at |^\s*\.\.\. \d+ (more|common frames omitted)/.test(t)) return { color: 'red', isDim: true }
   if (/\.java:\d+: (warning|경고):/.test(t)) return { color: 'yellow' } // javac, in English or Korean
-  if (/\b(ERROR|FATAL|SEVERE)\b|^Caused by:|^\S*(Exception|Error)(: |$)|BUILD FAILED|^FAILURE:|: (error|오류):|\.java:\d+: /.test(t)) return { color: 'red' }
-  if (/\bWARN(ING)?\b|: (warning|경고):/.test(t)) return { color: 'yellow' }
-  if (/BUILD SUCCESSFUL/.test(t) || STARTED.test(t)) return { color: 'green' }
+  if (levelOf(t)) return {}
+  if (/^Caused by:|^\S*(Exception|Error)(: |$)|BUILD FAILED|^FAILURE:|: (error|오류):|\.java:\d+: /.test(t)) return { color: 'red' }
+  if (/: (warning|경고):/.test(t)) return { color: 'yellow' }
+  if (/BUILD SUCCESSFUL/.test(t)) return { color: 'green' }
   if (line.kind === 'build') return { isDim: true }
   if (line.kind === 'err') return { color: 'red' }
   return {}
