@@ -23,6 +23,7 @@ const ENCODING = ['-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'] // a pip
 const DEFAULT_JVM_OPTIONS = '-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true'
 const STARTED = /\bStarted \S+ in [\d.]+ seconds?\b/
 const IDEA_WORKSPACE = '.idea/workspace.xml' // IntelliJ keeps its run configurations here
+const WRAPPER_JAR = 'gradle/wrapper/gradle-wrapper.jar'
 
 // Written into the project for each Run: compiles the app and writes, as a java argument file, what
 // `bootRun` would start (its classpath and main class). No Groovy `${}` here: this is a JS template.
@@ -67,13 +68,22 @@ const rt = {
   stopping: undefined as Promise<void> | undefined, // the Stop under way, which a second one joins
   lines: [] as Line[],
   isRedrawDue: false,
+  // Runs a verb with the session's own $. A press hands its closure the $ of the drawing it was drawn
+  // in, and a command the $ of its own dispatch; neither can start a child that outlives them, so the
+  // children (Gradle, the app) are started with the $ the session started with.
+  act: undefined as ((action: Action) => Promise<void>) | undefined,
 }
+
+type Action =
+  | { verb: 'run' | 'stop' | 'restart' | 'build' | 'clear' | 'import' }
+  | { verb: 'save'; patch: Partial<BootSettings> }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const r = await next(e)
     rt.cwd = e.cwd
     rt.isWindows = isWindowsPath(e.cwd)
+    rt.act = action => act($, action)
     // A reload ended any app this module had started: the pane says so rather than "running".
     await update($, status, () => ({ phase: 'idle', since: 0, detail: '' }))
     await loadSettings($).catch(() => {})
@@ -88,10 +98,8 @@ export const register: Register = on => {
   on('command.run', { command: 'boot-console' }, async ($, e) => {
     const verb = e.args.trim().toLowerCase()
     await $.ui.open({ id: PANE, title: TITLE })
-    if (verb === 'run') void start($).catch(() => {})
-    else if (verb === 'stop') await stop($)
-    else if (verb === 'restart') void restart($).catch(() => {})
-    else if (verb === 'build') void buildOnly($).catch(() => {})
+    if (verb === 'stop') await ask({ verb: 'stop' })
+    else if (verb === 'run' || verb === 'restart' || verb === 'build') void ask({ verb })
     return { text: verb ? `Boot Console: ${verb}` : 'Boot Console opened' }
   })
 
@@ -122,16 +130,16 @@ export const register: Register = on => {
           </Text>
           <Box flexDirection="row" gap={1}>
             {isBusy ? (
-              <Button key="stop" label="Stop" variant="primary" onPress={() => void stop($).catch(() => {})} />
+              <Button key="stop" label="Stop" variant="primary" onPress={() => void ask({ verb: 'stop' })} />
             ) : (
-              <Button key="run" label="Run" variant="primary" onPress={() => void start($).catch(() => {})} />
+              <Button key="run" label="Run" variant="primary" onPress={() => void ask({ verb: 'run' })} />
             )}
             {isBusy ? (
-              <Button key="restart" label="Restart" onPress={() => void restart($).catch(() => {})} />
+              <Button key="restart" label="Restart" onPress={() => void ask({ verb: 'restart' })} />
             ) : (
-              <Button key="build" label="Build" onPress={() => void buildOnly($).catch(() => {})} />
+              <Button key="build" label="Build" onPress={() => void ask({ verb: 'build' })} />
             )}
-            <Button key="clear" label="Clear" dimColor onPress={() => void clearLog($).catch(() => {})} />
+            <Button key="clear" label="Clear" dimColor onPress={() => void ask({ verb: 'clear' })} />
             <Button key="settings" label={isOpen ? 'Settings ▴' : 'Settings ▾'} dimColor onPress={() => void update($, isSettingsOpen, v => !v)} />
           </Box>
         </Box>
@@ -149,7 +157,7 @@ export const register: Register = on => {
                     label="Profile"
                     value={s.profile}
                     options={[{ value: '', label: '(none)' }, ...choices.map(value => ({ value }))]}
-                    onSelect={value => void saveSettings($, { profile: value }).catch(() => {})}
+                    onSelect={value => void ask({ verb: 'save', patch: { profile: value } })}
                   />
                 )}
                 <Input
@@ -157,30 +165,30 @@ export const register: Register = on => {
                   label="Profiles (typed, comma-separated)"
                   placeholder="local"
                   value={s.profile}
-                  onSubmit={value => void saveSettings($, { profile: value.trim() }).catch(() => {})}
+                  onSubmit={value => void ask({ verb: 'save', patch: { profile: value.trim() } })}
                 />
                 <Input
                   key="jvm"
                   label="JVM options"
                   placeholder="-Xmx2g -Dfoo=bar"
                   value={s.jvmOptions}
-                  onSubmit={value => void saveSettings($, { jvmOptions: value.trim() }).catch(() => {})}
+                  onSubmit={value => void ask({ verb: 'save', patch: { jvmOptions: value.trim() } })}
                 />
                 <Input
                   key="javaHome"
                   label="JDK home"
                   placeholder="empty: JAVA_HOME"
                   value={s.javaHome}
-                  onSubmit={value => void saveSettings($, { javaHome: value.trim() }).catch(() => {})}
+                  onSubmit={value => void ask({ verb: 'save', patch: { javaHome: value.trim() } })}
                 />
                 <Input
                   key="gradleArgs"
                   label="Gradle args"
                   placeholder="--offline"
                   value={s.gradleArgs}
-                  onSubmit={value => void saveSettings($, { gradleArgs: value.trim() }).catch(() => {})}
+                  onSubmit={value => void ask({ verb: 'save', patch: { gradleArgs: value.trim() } })}
                 />
-                <Button key="fromIntellij" label="From IntelliJ" dimColor onPress={() => void importIntellij($).catch(() => {})} />
+                <Button key="fromIntellij" label="From IntelliJ" dimColor onPress={() => void ask({ verb: 'import' })} />
                 <Text dimColor wrap="wrap">{`java: ${java || '(not found yet)'}  · applies from the next Run or Restart`}</Text>
               </Box>
             )
@@ -200,6 +208,35 @@ export const register: Register = on => {
       </Box>
     )
   })
+}
+
+// What a press or a command asks for, done with the session's $ (see rt.act).
+async function ask(action: Action) {
+  if (!rt.act) rt.lines.push({ text: '(boot-console has not started in this session yet: /reload-plugins)', kind: 'err' })
+  await rt.act?.(action).catch(() => {})
+}
+
+// An error as log lines: what failed and why, then where (the first frames of its stack).
+function failure(what: string, err: unknown): string[] {
+  const e = err as Error
+  const frames = (e?.stack ?? '').split(/\r?\n/).filter(line => /^\s+at /.test(line)).slice(0, 3)
+  return [`(${what}: ${e?.message ?? String(err)})`, ...frames.map(frame => `  ${frame.trim()}`)]
+}
+
+// A failure says which action it ended in the log, rather than nowhere.
+async function act($: EngineInterface, action: Action) {
+  try {
+    if (action.verb === 'run') await start($)
+    else if (action.verb === 'stop') await stop($)
+    else if (action.verb === 'restart') await restart($)
+    else if (action.verb === 'build') await buildOnly($)
+    else if (action.verb === 'clear') await clearLog($)
+    else if (action.verb === 'import') await importIntellij($)
+    else if (action.verb === 'save') await saveSettings($, action.patch)
+  } catch (err) {
+    for (const text of failure(`${action.verb} failed`, err)) rt.lines.push({ text, kind: 'err' })
+    redrawSoon($)
+  }
 }
 
 // Compile, then start the app's JVM and follow its log until it ends or Stop.
@@ -271,10 +308,17 @@ async function compile($: EngineInterface, id: number, home: string, gradleArgs:
   if (id !== rt.run) return false
   await setStatusIf($, id, 'building')
   note($, `── ${new Date(await $.clock.now()).toTimeString().slice(0, 8)} ──`)
+  const wrapper = `${slashed(rt.cwd)}/${WRAPPER_JAR}`
+  if (!(await $.fs.exists(wrapper))) {
+    note($, `no ${WRAPPER_JAR} in this project: boot-console runs Gradle through its wrapper`)
+    await setStatusIf($, id, 'failed', 'no Gradle wrapper')
+    return false
+  }
   await $.fs.write(`${rt.cwd}/${INIT_SCRIPT}`, INIT_GRADLE)
-  const env: Record<string, string> = { GRADLE_OPTS: `${(await $.env.get('GRADLE_OPTS')) ?? ''} ${ENCODING.join(' ')}`.trim() }
+  const env: Record<string, string> = {}
   if (home) env.JAVA_HOME = jdkRoot(home) // the JDK itself, even when the setting names its java
-  const argv = gradleArgv(rt.isWindows, await $.env.get('ComSpec'), [
+  const gradleOpts = [...tokenize((await $.env.get('JAVA_OPTS')) ?? ''), ...tokenize((await $.env.get('GRADLE_OPTS')) ?? '')]
+  const argv = gradleArgv(javaExe(home, rt.isWindows), wrapper, gradleOpts, [
     ...tokenize(gradleArgs),
     '--console=plain',
     '--no-configuration-cache',
@@ -283,7 +327,6 @@ async function compile($: EngineInterface, id: number, home: string, gradleArgs:
     TASK,
   ])
   note($, `$ ${argv.map(maskSecret).join(' ')}`)
-  note($, `java: ${javaExe(home, rt.isWindows)}`)
   void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {}) // follow the log until the person scrolls
   if (id !== rt.run) return false
   const code = await pump($, id, $.process.spawn({ argv, cwd: rt.cwd, env }), 'build')
@@ -314,7 +357,7 @@ async function pump($: EngineInterface, id: number, child: HookStream<ProcessSpa
     if (id === rt.run) for (const stream of ['stdout', 'stderr'] as const) if (partial[stream] !== '') take($, id, partial[stream], kindOf(kind, stream))
     return piece.value?.code ?? null
   } catch (err) {
-    if (id === rt.run) take($, id, `(${(err as Error).message ?? String(err)})`, 'err')
+    if (id === rt.run) for (const line of failure(`${kind === 'build' ? 'Gradle' : 'the app'}'s output stopped`, err)) take($, id, line, 'err')
     return null
   } finally {
     if (rt.child === child) rt.child = undefined
@@ -417,9 +460,11 @@ function storeKey() {
   return `settings:${slashed(rt.cwd)}`
 }
 
-// Gradle through its wrapper: cmd runs gradlew.bat on Windows, sh runs gradlew elsewhere.
-export function gradleArgv(isWindows: boolean, comspec: string | undefined, args: string[]): string[] {
-  return isWindows ? [comspec || 'cmd.exe', '/d', '/c', 'gradlew.bat', ...args] : ['sh', './gradlew', ...args]
+// Gradle through its wrapper, started the way gradlew and gradlew.bat start it: java runs the wrapper's
+// jar. No cmd.exe, bat file or sh in between, so nothing depends on the OS's shell (and on Windows the
+// engine's spawn of cmd.exe and .bat files hangs or fails now and then; java itself runs reliably).
+export function gradleArgv(java: string, wrapperJar: string, jvmOptions: string[], args: string[]): string[] {
+  return [java, '-Xmx64m', '-Xms64m', ...jvmOptions, ...ENCODING, '-Dorg.gradle.appname=gradlew', '-classpath', wrapperJar, 'org.gradle.wrapper.GradleWrapperMain', ...args]
 }
 
 // The java to start: a path to java itself as given, else the JDK's bin/java, else `java` on the PATH.

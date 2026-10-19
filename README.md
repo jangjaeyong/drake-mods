@@ -91,7 +91,7 @@ Open the pane with `/boot-console` in a Spring Boot project built with the Gradl
 demo  ● running since 13:02:11  · profile local
 [ Stop ] [ Restart ] [ Clear ] [ Settings ▾ ]
 
-$ C:\Windows\system32\cmd.exe /d /c gradlew.bat ... bootConsoleArgs
+$ C:/jdk-25/bin/java.exe ... org.gradle.wrapper.GradleWrapperMain ... bootConsoleArgs
 BUILD SUCCESSFUL in 4s
 $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profiles.active=local
 2026-10-19 13:02:19  INFO  Started DemoApplication in 6.3 seconds
@@ -103,7 +103,7 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 - `Settings`: the profile (picked from `src/main/resources/application-*.yml`, or typed, comma-separated), the JVM options, the JDK home (empty: `JAVA_HOME`) and Gradle args (e.g. `--offline`, before the task). Kept per project; used from the next Run or Restart.
 - From IntelliJ: until you save settings for a project, its IntelliJ Spring Boot run configuration (`.idea/workspace.xml`) gives the profile and the JVM options, so what the app needs from IntelliJ's VM options (a key, a path) comes along. `From IntelliJ` under Settings takes them again. Without one, the JVM options start as `-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true`.
 - A `-D` option whose name holds password, secret, token or credential shows as `****` in the log (it is still passed to the app, and kept in the settings as typed).
-- How it runs: each Run writes a small Gradle init script to `build/boot-console/` and runs the `bootConsoleArgs` task it adds, which compiles and writes what `bootRun` would start (classpath and main class) as a java argument file. The mod then starts that JVM itself: one process, so Stop really ends it. Gradle runs through `cmd /d /c gradlew.bat` on Windows and `sh ./gradlew` elsewhere; your own shell (zsh, bash, PowerShell) is not involved.
+- How it runs: each Run writes a small Gradle init script to `build/boot-console/` and runs the `bootConsoleArgs` task it adds, which compiles and writes what `bootRun` would start (classpath and main class) as a java argument file. The mod then starts that JVM itself: one process, so Stop really ends it. Gradle starts the way `gradlew` starts it, java running the wrapper's jar (`gradle/wrapper/gradle-wrapper.jar`, so the project needs the Gradle wrapper): no cmd.exe, bat file or sh in between, so your shell (zsh, bash, PowerShell) and the OS's are not involved.
 
 #### Notes
 
@@ -203,7 +203,7 @@ Gradle wrapper(`gradlew`)로 빌드하는 Spring Boot 프로젝트에서 `/boot-
 demo  ● running since 13:02:11  · profile local
 [ Stop ] [ Restart ] [ Clear ] [ Settings ▾ ]
 
-$ C:\Windows\system32\cmd.exe /d /c gradlew.bat ... bootConsoleArgs
+$ C:/jdk-25/bin/java.exe ... org.gradle.wrapper.GradleWrapperMain ... bootConsoleArgs
 BUILD SUCCESSFUL in 4s
 $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profiles.active=local
 2026-10-19 13:02:19  INFO  Started DemoApplication in 6.3 seconds
@@ -215,7 +215,7 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 - `Settings`: 프로필(`src/main/resources/application-*.yml` 에서 고르거나, 콤마로 직접 입력), JVM 옵션, JDK 경로(비우면 `JAVA_HOME`), Gradle 인자(예: `--offline`, 태스크 앞에 붙음). 프로젝트별로 기억하고 다음 Run/Restart 부터 적용.
 - IntelliJ 에서 가져오기: 그 프로젝트에서 설정을 저장하기 전까지는 IntelliJ 의 Spring Boot 실행 구성(`.idea/workspace.xml`)에서 프로필과 JVM 옵션을 가져온다. 그래서 IntelliJ VM 옵션에 들어 있던 앱에 필요한 값(키, 경로)도 같이 온다. Settings 의 `From IntelliJ` 로 언제든 다시 가져온다. 실행 구성이 없으면 JVM 옵션 기본값은 `-Dfile.encoding="UTF-8" -Dsun.stderr.encoding="UTF-8" -Dsun.stdout.encoding="UTF-8" -Djava.net.preferIPv4Stack=true`.
 - 이름에 password, secret, token, credential 이 들어간 `-D` 옵션은 로그에 `****` 로 보인다(앱에는 그대로 넘어가고, 설정에는 입력한 대로 저장된다).
-- 동작 방식: Run 마다 작은 Gradle init script 를 `build/boot-console/` 에 쓰고, 그 스크립트가 추가하는 `bootConsoleArgs` 태스크를 돌린다. 이 태스크가 컴파일하고 `bootRun` 이 띄울 것(classpath, main 클래스)을 java 인자 파일로 쓴다. 그다음 mod 가 그 JVM 을 직접 띄운다: 프로세스 하나라 Stop 이 확실하다. Gradle 은 Windows 에서 `cmd /d /c gradlew.bat`, 그 외에는 `sh ./gradlew` 로 돌고, 쓰는 셸(zsh, bash, PowerShell)과는 무관하다.
+- 동작 방식: Run 마다 작은 Gradle init script 를 `build/boot-console/` 에 쓰고, 그 스크립트가 추가하는 `bootConsoleArgs` 태스크를 돌린다. 이 태스크가 컴파일하고 `bootRun` 이 띄울 것(classpath, main 클래스)을 java 인자 파일로 쓴다. 그다음 mod 가 그 JVM 을 직접 띄운다: 프로세스 하나라 Stop 이 확실하다. Gradle 은 `gradlew` 가 하는 방식 그대로 java 로 wrapper jar(`gradle/wrapper/gradle-wrapper.jar`, 그래서 Gradle wrapper 가 있는 프로젝트여야 한다)를 실행해 띄운다: cmd.exe, bat, sh 를 거치지 않아 쓰는 셸(zsh, bash, PowerShell)이나 OS 셸과 무관하다.
 
 #### 참고
 

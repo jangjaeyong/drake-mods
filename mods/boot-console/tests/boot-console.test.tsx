@@ -26,6 +26,8 @@ const WORKSPACE = `<?xml version="1.0" encoding="UTF-8"?>
 const PANE = { component: 'Pane', requestId: 'boot-console', props: { title: 'Boot Console', isFocused: false, bodyColumns: 100, placement: 'dock' } }
 const WIN = 'C:/work/demo'
 const GRADLE_TAIL = ['--console=plain', '--no-configuration-cache', '--init-script', 'build/boot-console/init.gradle', 'bootConsoleArgs']
+const WRAPPER = ['-Dorg.gradle.appname=gradlew', '-classpath'] // then the wrapper jar, its main class and Gradle's args
+const gradleOf = (java: string, cwd: string, args: string[]) => [java, '-Xmx64m', '-Xms64m', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8', ...WRAPPER, `${cwd}/gradle/wrapper/gradle-wrapper.jar`, 'org.gradle.wrapper.GradleWrapperMain', ...args]
 const DEFAULT_JVM = ['-Dfile.encoding=UTF-8', '-Dsun.stderr.encoding=UTF-8', '-Dsun.stdout.encoding=UTF-8', '-Djava.net.preferIPv4Stack=true']
 
 type Piece = { stream: 'stdout' | 'stderr'; text: string }
@@ -94,7 +96,7 @@ function javas() {
 }
 
 // The engine beneath the mod: files, the pane, and the two children it may start.
-function world(on: any, children: { gradle: Child; java: Child }, resources = ['application.yml', 'application-dev.yml', 'application-local.yml']) {
+function world(on: any, children: { gradle: Child; java: Child }, resources = ['application.yml', 'application-dev.yml', 'application-local.yml'], hasWrapper = true) {
   const spawns: { argv: string[]; cwd?: string; env?: Record<string, string> }[] = []
   const writes: { path: string; text: string }[] = []
   on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
@@ -102,10 +104,11 @@ function world(on: any, children: { gradle: Child; java: Child }, resources = ['
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.scroll', () => ({}))
   on('fs.list', () => ({ value: [...resources.map(name => ({ name, kind: 'file' })), { name: 'static', kind: 'dir' }] }))
+  on('fs.exists', () => ({ value: hasWrapper })) // the Gradle wrapper's jar
   on('fs.write', (_$: any, e: any) => (writes.push({ path: String(e.path).replace(/\\/g, '/'), text: e.text }), { value: undefined }))
   on('process.spawn', async function* (_$: any, e: any) {
     spawns.push(e)
-    const isGradle = e.argv.includes('gradlew.bat') || e.argv.includes('./gradlew')
+    const isGradle = e.argv.includes('org.gradle.wrapper.GradleWrapperMain')
     const result = yield* (isGradle ? children.gradle : children.java)(e)
     return { value: result } // a stream hook ends with { value }
   })
@@ -115,10 +118,20 @@ function world(on: any, children: { gradle: Child; java: Child }, resources = ['
 const start = (cwd: string) => ({ surface: 'terminal', isInteractive: true, cwd }) as any
 
 describe('the pieces', () => {
-  test('runs Gradle through its wrapper by the OS, not by your shell', async () => {
-    expect(gradleArgv(true, 'C:\\Windows\\system32\\cmd.exe', ['classes'])).toEqual(['C:\\Windows\\system32\\cmd.exe', '/d', '/c', 'gradlew.bat', 'classes'])
-    expect(gradleArgv(true, undefined, ['classes'])).toEqual(['cmd.exe', '/d', '/c', 'gradlew.bat', 'classes'])
-    expect(gradleArgv(false, undefined, ['classes'])).toEqual(['sh', './gradlew', 'classes'])
+  test('runs Gradle the way gradlew does, java on the wrapper jar, with no shell in between', async () => {
+    expect(gradleArgv('java', '/w/gradle/wrapper/gradle-wrapper.jar', ['-Xmx1g'], ['classes'])).toEqual([
+      'java',
+      '-Xmx64m',
+      '-Xms64m',
+      '-Xmx1g',
+      '-Dstdout.encoding=UTF-8',
+      '-Dstderr.encoding=UTF-8',
+      '-Dorg.gradle.appname=gradlew',
+      '-classpath',
+      '/w/gradle/wrapper/gradle-wrapper.jar',
+      'org.gradle.wrapper.GradleWrapperMain',
+      'classes',
+    ])
   })
 
   test('finds java from the JDK home, a path to java itself, or the PATH', async () => {
@@ -197,7 +210,7 @@ describe('boot-console', () => {
   test('Run compiles with Gradle, then starts the JVM itself with the profile, and shows it running', async ($, on) => {
     const clock = mock.clock(on, { now: 1_000 })
     mock.store(on)
-    mock.env(on, { JAVA_HOME: 'C:\\jdk-25', ComSpec: 'C:\\Windows\\system32\\cmd.exe' })
+    mock.env(on, { JAVA_HOME: 'C:\\jdk-25', GRADLE_OPTS: '-Xmx1g' })
     const java = javaUp()
     const w = world(on, { gradle: gradleOk, java: java.child })
     await $.session.start(start(WIN))
@@ -207,9 +220,19 @@ describe('boot-console', () => {
 
     expect(w.writes[0]?.path).toBe(`${WIN}/build/boot-console/init.gradle`)
     expect(w.writes[0]?.text).toContain("register('bootConsoleArgs')")
-    expect(w.spawns[0]?.argv).toEqual(['C:\\Windows\\system32\\cmd.exe', '/d', '/c', 'gradlew.bat', ...GRADLE_TAIL])
+    expect(w.spawns[0]?.argv).toEqual([
+      'C:\\jdk-25/bin/java.exe',
+      '-Xmx64m',
+      '-Xms64m',
+      '-Xmx1g', // GRADLE_OPTS, as gradlew passes it
+      '-Dstdout.encoding=UTF-8',
+      '-Dstderr.encoding=UTF-8',
+      ...WRAPPER,
+      `${WIN}/gradle/wrapper/gradle-wrapper.jar`,
+      'org.gradle.wrapper.GradleWrapperMain',
+      ...GRADLE_TAIL,
+    ])
     expect(w.spawns[0]?.env?.JAVA_HOME).toBe('C:\\jdk-25')
-    expect(w.spawns[0]?.env?.GRADLE_OPTS).toBe('-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8')
     expect(w.spawns[1]?.argv).toEqual([
       'C:\\jdk-25/bin/java.exe',
       ...DEFAULT_JVM, // the JVM options a project starts with
@@ -301,7 +324,7 @@ describe('boot-console', () => {
     await ui.press({ key: 'run' })
     await clock.settle()
 
-    expect(w.spawns[0]?.argv.slice(0, 2)).toEqual(['sh', './gradlew'])
+    expect(w.spawns[0]?.argv).toEqual(gradleOf('/opt/jdk-25/bin/java', '/home/me/demo', GRADLE_TAIL))
     expect(w.spawns[0]?.env?.JAVA_HOME).toBe('/opt/jdk-25')
     expect(w.spawns[1]?.argv).toEqual([
       '/opt/jdk-25/bin/java',
@@ -419,7 +442,7 @@ describe('boot-console', () => {
     await clock.settle()
 
     expect(jvms.ends).toEqual([0])
-    expect(w.spawns.map(s => (s.argv.includes('gradlew.bat') ? 'gradle' : 'java'))).toEqual(['gradle', 'java', 'gradle', 'java'])
+    expect(w.spawns.map(s => (s.argv.includes('org.gradle.wrapper.GradleWrapperMain') ? 'gradle' : 'java'))).toEqual(['gradle', 'java', 'gradle', 'java'])
     const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...PANE } as any)
     expect(await ui.find({ type: 'Text', text: /● running since/ })).toBeDefined()
     await ui.unmount()
@@ -537,11 +560,27 @@ describe('boot-console', () => {
     await ui.press({ key: 'run' })
     await clock.settle()
 
-    expect(w.spawns[0]?.argv).toEqual(['cmd.exe', '/d', '/c', 'gradlew.bat', '--offline', ...GRADLE_TAIL])
+    expect(w.spawns[0]?.argv).toEqual(gradleOf('java', WIN, ['--offline', ...GRADLE_TAIL]))
     expect(w.spawns[1]?.argv.slice(1, 4)).toEqual(['-Dapp.key.password=s3cr3t', '-Dfile.encoding=UTF-8', '-Xmx1g'])
     await ui.unmount()
     java.release()
     await clock.settle()
+  })
+
+  test('a project without the Gradle wrapper says so and starts nothing', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    mock.env(on, {})
+    const w = world(on, { gradle: gradleOk, java: javaUp().child }, undefined, false)
+    await $.session.start(start(WIN))
+    await $.command.run({ command: 'boot-console', args: 'run' } as any)
+    await clock.settle()
+
+    expect(w.spawns).toHaveLength(0)
+    const ui = await $.ui.mount({ plugin: 'boot-console', surface: 'terminal', ...PANE } as any)
+    expect(await ui.find({ type: 'Text', text: /no gradle\/wrapper\/gradle-wrapper\.jar in this project/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /✗ failed .*\(no Gradle wrapper\)/ })).toBeDefined()
+    await ui.unmount()
   })
 
   test('a fresh load says the app is not running', async ($, on) => {
