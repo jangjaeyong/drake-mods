@@ -1,0 +1,13 @@
+{
+  "name": "drake-mods",
+  "owner": { "name": "jangjaeyong" },
+  "description": "Claude Code mods by jangjaeyong.",
+  "plugins": [
+    {
+      "name": "prompt-recap",
+      "description": "Your prompts, what you added mid-turn and how each turn ended, in a pane beside the chat. Press a prompt to jump back to it.",
+      "version": "0.1.0",
+      "source": "./mods/prompt-recap"
+    }
+  ]
+}

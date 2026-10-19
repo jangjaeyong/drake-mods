@@ -1,0 +1,10 @@
+{
+  "name": "prompt-recap",
+  "version": "0.1.0",
+  "description": "Your prompts, what you added mid-turn and how each turn ended, in a pane beside the chat. Press a prompt to jump back to it.",
+  "author": {
+    "name": "jangjaeyong",
+    "url": "https://github.com/jangjaeyong"
+  },
+  "types": "./types/index.d.ts"
+}
