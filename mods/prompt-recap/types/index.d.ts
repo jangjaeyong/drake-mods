@@ -5,19 +5,26 @@ export type RecapEntry = {
   head: string // the prompt's first characters, whitespace folded: finds its transcript row
   prompt: string
   followUps: string[] // what you typed while that turn ran
-  answer: string // the reply's first line: the summary until where-am-i has one
-  summary: string // where-am-i's "now" for the turn
-  waiting: string // where-am-i's "waiting on you"
+  answer: string // the reply's first line: the summary until the model writes one, or with summaries off
+  summary: string // the model's "now" for the turn
+  waiting: string // the model's "waiting on you" for the turn
   durationMs: number
   isDone: boolean
 }
 
-export type WhereAmIRecap = { goal: string; now: string; waiting: string; next: string }
+// The session at a glance, as the model last wrote it after one of your turns.
+export type SessionRecap = { goal: string; now: string; waiting: string; next: string }
+
+// The longer recap asked for with the Full recap button or /prompt-recap recap.
+export type FullRecap = { text: string; isLoading: boolean }
 
 declare module 'claude-code' {
   interface PluginState {
-    'prompt-recap': { entries: RecapEntry[] }
-    // Owned by the where-am-i mod, read here. Kept the same as its own contract.
-    'where-am-i': { recap: WhereAmIRecap | null; live: string }
+    'prompt-recap': {
+      entries: RecapEntry[]
+      recap: SessionRecap | null
+      live: string // what Claude is doing right now, from its tool calls
+      full: FullRecap | null
+    }
   }
 }
