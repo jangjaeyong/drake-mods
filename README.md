@@ -29,6 +29,19 @@ claude plugin install <mod> --marketplace jangjaeyong/drake-mods
 
 Then `/reload-plugins` or restart.
 
+### Update
+
+Third-party marketplaces like this one do not update by themselves unless you turn it on. To update by hand, from a shell:
+
+```
+claude plugin marketplace update drake-mods
+claude plugin update <mod>@drake-mods
+```
+
+The first line fetches the latest catalog; without it the second may say the mod is up to date. Then `/reload-plugins` or restart. `claude plugin list` shows the installed version.
+
+To update automatically: `/plugin` → **Marketplaces** → `drake-mods` → **Enable auto-update** (once). After your first message in a session, Claude Code checks within ten minutes and updates the installed mods on disk; the running session keeps the old version until `/reload-plugins` or the next launch. With `DISABLE_AUTOUPDATER=1` (or `DISABLE_UPDATES=1`) set, auto-update does not run unless `FORCE_AUTOUPDATE_PLUGINS=1` is set too.
+
 ### prompt-recap
 
 Open the pane with `/prompt-recap`. It works the same on any shell (zsh, bash, PowerShell) and OS: it runs no shell commands and reads no files or environment variables.
@@ -151,6 +164,19 @@ claude plugin install <mod> --marketplace jangjaeyong/drake-mods
 ```
 
 설치 뒤 `/reload-plugins` 또는 재시작.
+
+### 업데이트
+
+이 저장소 같은 서드파티 마켓플레이스는 켜 두지 않으면 자동으로 업데이트되지 않는다. 직접 업데이트하려면 셸에서:
+
+```
+claude plugin marketplace update drake-mods
+claude plugin update <mod>@drake-mods
+```
+
+첫 줄이 최신 목록을 받아온다. 빼먹으면 둘째 줄이 "이미 최신"이라고 할 수 있다. 이어서 `/reload-plugins` 또는 재시작. 설치된 버전은 `claude plugin list` 로 확인한다.
+
+자동 업데이트: `/plugin` → **Marketplaces** → `drake-mods` → **Enable auto-update** (한 번만). 세션에서 첫 메시지를 보낸 뒤 10분 안에 확인해 설치된 mod 를 디스크에 업데이트한다. 실행 중인 세션은 `/reload-plugins` 나 다음 실행 전까지 이전 버전 그대로다. `DISABLE_AUTOUPDATER=1`(또는 `DISABLE_UPDATES=1`)이 설정돼 있으면 `FORCE_AUTOUPDATE_PLUGINS=1` 도 함께 설정해야 자동 업데이트가 돈다.
 
 ### prompt-recap
 
