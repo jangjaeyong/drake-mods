@@ -402,8 +402,10 @@ export const register: Register = (on, options) => {
       const entry = (await read($, entries)).find(one => String(one.id) === id)
       const text = entry && (n ? entry.followUps[Number(n) - 1] : entry.prompt)
       await jump($, text === undefined ? undefined : findRow(rows, head(text)))
-    }
-    return next(e)
+    } else return next(e) // the Buttons whose own onPress does the work
+    // Answered here: these Buttons' onPress is empty, and the pane drawn since (Back gone once the main
+    // view is back) may hold no closure of the one pressed for the engine to run.
+    return { element: e.element }
   })
 
   // Docked, the list scrolls itself: the wheel, the arrows and the page keys move it, and the engine's
