@@ -1,7 +1,7 @@
 // File Tree: the session's folder as a tree in a pane, as IntelliJ's Project view or VS Code's Explorer
 // draw it, each name in git's colour for it. A folder opens on a press; a file on a press (a double click
 // too) in this mod's own editor, which takes the pane until `← Files`: Enter breaks the line, Ctrl+S
-// saves. Nothing starts outside Claude Code (no Notepad, no shell), so it works the same on any OS. The
+// saves. An image or a document (PDF, Word, Excel, ...) opens in the OS's own app for it instead. The
 // editor shares the tree's pane rather than opening one of its own: a pane opened from a press in another
 // stays a tab behind it, and nothing on $ brings it forward.
 import { atom, read, update } from 'claude-code'
@@ -19,6 +19,10 @@ const WHEEL_ROWS = 3 // rows one wheel tick moves
 const REFRESH_MS = 300 // a burst of edits refreshes the tree once
 const DRAFT_MS = 1000 // the editor's text is kept for a reload this long after its last edit
 const AGAIN_MS = 800 // a folder's second press this soon is the rest of a slow double click: one toggle
+// Files only their own app reads (images, office documents, PDF): pressed, they open in it, not the editor.
+const OUTSIDE = new Set('png jpg jpeg gif bmp webp ico tif tiff avif heic pdf doc docx xls xlsx xlsm ppt pptx hwp hwpx odt ods odp'.split(' '))
+// Windows opens one by its file association: the path comes in the environment, so no quoting can break it.
+const OPEN_PS = '$i = New-Object Diagnostics.ProcessStartInfo $env:FILE_TREE_OPEN; $i.UseShellExecute = $true; [void][Diagnostics.Process]::Start($i)'
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell']) // calls that may change files
 const CLEAN: EditStatus = { isDirty: false, isChangedOnDisk: false, savedAt: 0, message: '' }
 
@@ -393,7 +397,9 @@ async function pressRow($: EngineInterface, path: string) {
   const isAgain = rt.lastPress.path === path && now - rt.lastPress.at < AGAIN_MS
   if (!isAgain) rt.lastPress = { path, at: now }
   await update($, selected, () => path)
-  if (!entry.isDir) await openFile($, path)
+  if (!entry.isDir && OUTSIDE.has(extensionOf(path))) {
+    if (!isAgain) await openOutside($, path) // a slow double click opens one window
+  } else if (!entry.isDir) await openFile($, path)
   else if (isAgain) return
   else if ((await read($, expanded)).includes(path)) await update($, expanded, list => list.filter(one => one !== path))
   else {
@@ -420,6 +426,21 @@ async function openFile($: EngineInterface, path: string) {
     await setOpened($, loaded)
   } else await checkOnDisk($).catch(() => {})
   await update($, isEditing, () => true)
+}
+
+// An image or a document in the OS's own app for it, as a double click in Explorer or Finder opens it:
+// on Windows by the file's association (PowerShell), on macOS by `open`, elsewhere by `xdg-open`. The
+// app is started by the shell, not as a process of Claude Code's, so it stays open when Claude Code ends.
+async function openOutside($: EngineInterface, path: string) {
+  const full = fullPath(path)
+  const tools = isWindowsPath(rt.cwd) ? [['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', OPEN_PS]] : [['xdg-open', full], ['open', full]]
+  for (const argv of tools) {
+    const r = await $.process.run(argv, { env: { FILE_TREE_OPEN: full.replace(/\//g, '\\') }, timeoutMs: 15_000 }).catch(() => undefined)
+    if (!r) continue // not there: the next
+    $.ui.toast(r.exitCode === 0 ? `file-tree: ${path} opened in its own app` : `file-tree: ${path} could not be opened: no app is set for it`)
+    return
+  }
+  $.ui.toast(`file-tree: ${path} could not be opened: no way to start its app here`)
 }
 
 // The file as the editor takes it, or why it cannot: too big, binary, not UTF-8.
@@ -694,6 +715,11 @@ function fullPath(path: string) {
 
 function isWindowsPath(path: string) {
   return /^[A-Za-z]:[\\/]/.test(path)
+}
+
+function extensionOf(path: string) {
+  const dot = path.lastIndexOf('.')
+  return dot > path.lastIndexOf('/') ? path.slice(dot + 1).toLowerCase() : ''
 }
 
 function baseName(path: string) {

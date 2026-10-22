@@ -20,6 +20,8 @@ function world(on: any, files: Record<string, string>, git: string | null = GIT_
     opens: [] as string[],
     clipboard: '', // what the OS's clipboard tool answers
     onList: null as null | (() => Promise<void>), // runs once inside the next listing: a press while it lists
+    launched: [] as string[], // the files opened in their own app
+    launchExit: 0, // how starting that app ends
   }
   const norm = (path: string) => String(path).replace(/\\/g, '/').replace(/\/$/, '')
   const isDir = (path: string) => path === ROOT || [...disk.files.keys()].some(file => file.startsWith(`${path}/`))
@@ -68,6 +70,8 @@ function world(on: any, files: Record<string, string>, git: string | null = GIT_
     return { value: undefined }
   })
   on('process.run', (_$: any, e: any) => {
+    const file = e.init?.env?.FILE_TREE_OPEN
+    if (file && e.argv[0] === 'powershell.exe') return (disk.launched.push(file), { value: { exitCode: disk.launchExit, stdout: '', stderr: '' } })
     if (e.argv[0] === 'powershell.exe') return { value: { exitCode: 0, stdout: disk.clipboard, stderr: '' } }
     const args = e.argv.slice(1).join(' ')
     if (git === null) return { value: { exitCode: 128, stdout: '', stderr: 'not a git repository' } }
@@ -515,7 +519,7 @@ describe('file-tree', () => {
   })
 
   test('another file waits while one has unsaved changes; a binary one is refused', async ($, on) => {
-    const { ui, clock, disk } = await opened($, on, { ...FILES, 'logo.png': '\u0089PNG\0\0' })
+    const { ui, clock, disk } = await opened($, on, { ...FILES, 'app.bin': 'MZ\0\0' })
     await openInEditor(ui, clock, 'notes.md')
     const editor = ui
     await editor.resize({ in: 'editor', columns: 60, rows: 10 })
@@ -531,8 +535,31 @@ describe('file-tree', () => {
     await editor.press({ key: 'revert' }) // the disk's text again: nothing unsaved
     await editor.press({ key: 'back' })
     await clock.advance(1_000)
-    await openInEditor(ui, clock, 'logo.png')
-    expect(disk.toasts.at(-1)).toMatch(/logo\.png is a binary file/)
+    await openInEditor(ui, clock, 'app.bin')
+    expect(disk.toasts.at(-1)).toMatch(/app\.bin is a binary file/)
+    await ui.unmount()
+  })
+
+  test('an image or a document opens in its own app, once for a slow double click; a CSV in the editor', async ($, on) => {
+    const { ui, clock, disk } = await opened($, on, { ...FILES, 'logo.png': '\u0089PNG\0\0', 'docs/Report.XLSX': 'PK\0\0', 'data.csv': 'a,b\n' })
+    await ui.press({ key: 'row:logo.png' })
+    await ui.press({ key: 'row:logo.png' }) // the second click of a slow double click
+    expect(disk.launched).toEqual(['C:\\work\\demo\\logo.png'])
+    expect(disk.toasts.at(-1)).toMatch(/logo\.png opened in its own app/)
+    expect(await ui.find({ type: 'Button', key: 'save' })).toBeUndefined() // the tree stays
+
+    await ui.press({ key: 'row:docs' })
+    await ui.press({ key: 'row:docs/Report.XLSX' })
+    expect(disk.launched.at(-1)).toBe('C:\\work\\demo\\docs\\Report.XLSX')
+
+    disk.launchExit = 1 // no app set for it
+    await clock.advance(1_000)
+    await ui.press({ key: 'row:logo.png' })
+    expect(disk.toasts.at(-1)).toMatch(/logo\.png could not be opened/)
+
+    await ui.press({ key: 'row:data.csv' })
+    expect(await ui.find({ type: 'Button', key: 'save' })).toBeDefined()
+    expect(disk.launched).toHaveLength(3)
     await ui.unmount()
   })
 

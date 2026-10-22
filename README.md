@@ -12,7 +12,7 @@ Claude Code mods. · Claude Code 용 mod 모음.
 | --- | --- |
 | [prompt-recap](mods/prompt-recap) | A pane beside the chat with your questions, what you added while Claude worked, and how each turn ended, plus the session at a glance (goal, what's happening now, what's waiting on you, next step) and the background agents at work. Press a question to jump back to it, an agent to watch it. |
 | [boot-console](mods/boot-console) | IntelliJ's Run tab for a Spring Boot app, in a pane: Run, Stop, Restart, Build, with the app's log live. Compiles what changed and starts the main class from the compiled classes, no jar. Profile, JVM options and JDK per project. |
-| [file-tree](mods/file-tree) | IntelliJ's Project view in a pane: your folders and files as a tree, names in git's colours. Press a file to edit it right there, Enter for a new line, Ctrl+S to save. |
+| [file-tree](mods/file-tree) | IntelliJ's Project view in a pane: your folders and files as a tree, names in git's colours. Press a file to edit it right there, Enter for a new line, Ctrl+S to save; an image or a document opens in its own app. |
 
 ### Install
 
@@ -143,7 +143,7 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 
 ### file-tree
 
-Open the pane with `/file-tree` (`/file-tree refresh` lists again). It works the same on any shell and OS: it reads folders through Claude Code itself, asks git for the branch and each file's state, and starts no editor of the OS.
+Open the pane with `/file-tree` (`/file-tree refresh` lists again). It works the same on any shell and OS: it reads folders through Claude Code itself, asks git for the branch and each file's state, edits text in its own editor, and opens images and documents in the OS's own app for them.
 
 ```
 [ Refresh ] [ Collapse all ] [ Editor: App.java ● ]
@@ -163,6 +163,7 @@ The tree
 - Names in git's colours, as IntelliJ draws them: changed blue, added green, untracked red, ignored orange (`build`, `.gradle`, ...). Without git, no colours.
 - It follows Claude's edits and commands, and each turn's end; `Refresh` reads again any time. `Collapse all` shuts every folder.
 - Docked on the right, the buttons stay put and only the tree scrolls: the wheel, the arrows and PageUp/PageDown (with the pane focused), or the scrollbar on its right.
+- An image (`png`, `jpg`, `gif`, `webp`, `bmp`, `ico`, `tif`, `heic`, `avif`) or a document only its own app reads (PDF, Word, Excel, PowerPoint, Hangul `hwp`/`hwpx`, OpenDocument) opens in that app, as a double click in Explorer or Finder opens it: on Windows by its file association, on macOS with `open`, on Linux with `xdg-open`. The OS starts the app, not Claude Code, so it stays open when Claude Code ends. Text such as CSV, Markdown or SVG opens in the editor below.
 
 The editor
 
@@ -190,7 +191,7 @@ The editor
 | --- | --- |
 | [prompt-recap](mods/prompt-recap) | 내가 한 질문, 작업 중에 덧붙인 말, 턴 결과 요약에 더해 세션의 목표·지금 하는 일·나를 기다리는 것·다음 단계, 그리고 일하는 백그라운드 에이전트를 오른쪽 창에 모아 보여준다. 질문을 누르면 그 위치로, 에이전트를 누르면 그 에이전트 화면으로. |
 | [boot-console](mods/boot-console) | Spring Boot 앱용 IntelliJ Run 탭을 창으로: Run, Stop, Restart, Build 와 실시간 로그. jar 없이 바뀐 것만 컴파일하고 컴파일된 클래스에서 main 을 바로 실행한다. 프로필, JVM 옵션, JDK 를 프로젝트별로. |
-| [file-tree](mods/file-tree) | IntelliJ 의 Project 창을 창으로: 폴더와 파일을 트리로, 이름은 git 상태 색으로. 파일을 누르면 그 자리에서 편집한다. Enter 는 줄바꿈, Ctrl+S 는 저장. |
+| [file-tree](mods/file-tree) | IntelliJ 의 Project 창을 창으로: 폴더와 파일을 트리로, 이름은 git 상태 색으로. 파일을 누르면 그 자리에서 편집한다. Enter 는 줄바꿈, Ctrl+S 는 저장. 이미지와 문서는 연결된 앱으로 연다. |
 
 ### 설치
 
@@ -321,7 +322,7 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 
 ### file-tree
 
-`/file-tree` 로 창을 연다(`/file-tree refresh` 는 다시 읽기). 셸이나 OS 와 무관하게 동작한다: 폴더는 Claude Code 를 통해 읽고, 브랜치와 파일 상태는 git 에 묻고, OS 의 편집기는 띄우지 않는다.
+`/file-tree` 로 창을 연다(`/file-tree refresh` 는 다시 읽기). 셸이나 OS 와 무관하게 동작한다: 폴더는 Claude Code 를 통해 읽고, 브랜치와 파일 상태는 git 에 묻고, 텍스트는 자체 편집기로, 이미지와 문서는 OS 에 연결된 앱으로 연다.
 
 ```
 [ Refresh ] [ Collapse all ] [ Editor: App.java ● ]
@@ -341,6 +342,7 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 - IntelliJ 처럼 이름에 git 상태 색: 수정 파랑, 추가 초록, untracked 빨강, ignored 주황(`build`, `.gradle` 등). git 이 없으면 색 없음.
 - Claude 의 편집·명령과 턴이 끝날 때마다 다시 읽는다. `Refresh` 로 언제든 다시 읽고, `Collapse all` 로 모두 접는다.
 - 오른쪽에 붙은 창에서는 버튼이 고정되고 트리만 스크롤된다: 휠, 화살표, PageUp/PageDown(창에 포커스가 있을 때), 또는 오른쪽 스크롤바.
+- 이미지(`png`, `jpg`, `gif`, `webp`, `bmp`, `ico`, `tif`, `heic`, `avif`)와 전용 프로그램이 있어야 읽는 문서(PDF, Word, Excel, PowerPoint, 한글 `hwp`/`hwpx`, OpenDocument)는 탐색기나 Finder 에서 더블클릭한 것처럼 연결된 앱으로 연다: Windows 는 파일 연결, macOS 는 `open`, Linux 는 `xdg-open`. 앱은 Claude Code 가 아니라 OS 가 띄우므로 Claude Code 를 꺼도 그대로 열려 있다. CSV, Markdown, SVG 같은 텍스트는 아래 편집기로 연다.
 
 편집기
 
