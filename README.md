@@ -96,7 +96,7 @@ With summaries on, a small model (Haiku) is called once after each turn you type
 - The pane docks on the right, and jumping scrolls the conversation, only in the fullscreen view: `"tui": "fullscreen"` in `~/.claude/settings.json`. In the classic view the pane sits above the prompt and shows the last 3 entries; the Full recap button is hidden there, but `/prompt-recap recap` still works.
 - Clear empties the pane, not the conversation: a turn still running keeps going, and what it does next shows up again.
 - Pane hotkeys work while the pane holds the keyboard (click it, or ctrl+x tab). Press Esc to go back to the prompt.
-- The list lives for the session. `/clear` and `/resume` empty it, and questions from before a resume are not listed.
+- The list is the session's. `/clear` empties it; `/resume` empties it too, and that conversation's saved list comes back at your first prompt there (see "Kept for a resume" below).
 - Slash commands, background notifications and prompts other mods send are left out. Turns that end in an error, a refusal or an interrupt are not summarized (no model call).
 - Jumping finds only rows that have been drawn on screen at least once. If you sent the same words several times ("ok", "continue"), it goes to the one drawn last.
 - A message you send while a background notification's turn runs may, rarely, get that turn's answer if the turn ended before taking it.
@@ -178,7 +178,7 @@ The editor
 
 - The pane docks on the right, and the mouse works, in the fullscreen view (`"tui": "fullscreen"` in `~/.claude/settings.json`). In the classic view it sits above the prompt.
 - One file at a time: to open another, save or revert the one with changes.
-- UTF-8 text files up to about 80,000 characters (what a pane can hand its editor at once). A binary file, another encoding (EUC-KR, say) or a longer file is not opened, with a message, so it is never saved damaged. A paste that would take the text past it is refused, with a message.
+- UTF-8 text files up to about 80,000 characters (what a pane can hand its editor at once). A binary file, another encoding (EUC-KR, say) or a longer file is not opened, with a message, so it is never saved damaged. A paste that would take the text past it is refused, with a message; typed past it, the editor says so and saves nothing until it is shorter again.
 - Not in 0.1: selecting text, copy, find, syntax colours. Undo steps are lost when you go back to the tree.
 - Where a surface draws no editor of this kind (VS Code, the mobile app), the file shows read-only.
 
@@ -274,7 +274,7 @@ claude plugin update <mod>@drake-mods
 - 오른쪽에 붙는 창과 질문 위치로 이동은 fullscreen 화면에서만 된다. `~/.claude/settings.json` 에 `"tui": "fullscreen"`. 기본 화면에서는 창이 입력창 위에 붙고 최근 3개만 보인다. 이때 Full recap 버튼은 숨겨지지만 `/prompt-recap recap` 은 동작한다.
 - Clear 는 창만 비우고 대화는 그대로다: 도는 중인 턴은 계속 진행되고, 그 뒤 하는 일은 다시 창에 나타난다.
 - 창 단축키는 창에 포커스가 있을 때(창 클릭 또는 ctrl+x tab) 동작한다. Esc 로 입력창에 돌아간다.
-- 목록은 세션 안에서만 쌓인다. `/clear`, `/resume` 하면 비워지고, resume 이전 질문은 나오지 않는다.
+- 목록은 세션 단위다. `/clear` 하면 비워진다. `/resume` 해도 비워지지만, 그 대화에서 첫 질문을 보내면 저장해 둔 목록이 돌아온다(아래 "resume 시 복원").
 - 슬래시 커맨드, 백그라운드 알림, 다른 mod 가 보낸 프롬프트는 넣지 않는다. 오류·거부·중단으로 끝난 턴은 요약하지 않는다(모델 호출 없음).
 - 점프는 화면에 한 번이라도 그려진 질문 행만 찾는다. 같은 말("계속", "ok")을 여러 번 보냈으면 마지막으로 그려진 행으로 간다.
 - 백그라운드 알림 턴이 도는 중에 보낸 말은, 그 턴이 말을 받기 전에 끝나면 드물게 알림 쪽 답변이 붙을 수 있다.
@@ -356,7 +356,7 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 
 - 오른쪽에 붙는 창과 마우스는 fullscreen 화면에서 된다(`~/.claude/settings.json` 에 `"tui": "fullscreen"`). 기본 화면에서는 입력창 위에 붙는다.
 - 한 번에 파일 하나: 다른 파일을 열려면 변경 중인 파일을 저장하거나 Revert 한다.
-- UTF-8 텍스트, 약 8만 자까지(창이 편집기에 한 번에 넘길 수 있는 크기). 바이너리, 다른 인코딩(EUC-KR 등), 더 긴 파일은 열지 않고 알려준다. 그래서 깨진 채 저장되는 일이 없다. 붙여넣으면 이 크기를 넘는 경우엔 붙여넣지 않고 알려준다.
+- UTF-8 텍스트, 약 8만 자까지(창이 편집기에 한 번에 넘길 수 있는 크기). 바이너리, 다른 인코딩(EUC-KR 등), 더 긴 파일은 열지 않고 알려준다. 그래서 깨진 채 저장되는 일이 없다. 붙여넣으면 이 크기를 넘는 경우엔 붙여넣지 않고 알려준다. 입력해서 넘기면 편집기가 알려주고, 다시 줄일 때까지 저장하지 않는다.
 - 0.1 에 없는 것: 텍스트 선택, 복사, 찾기, 문법 색. 트리로 돌아가면 실행 취소 기록이 사라진다.
 - 이런 편집기를 그리지 못하는 화면(VS Code, 모바일 앱)에서는 읽기 전용으로 보인다.
 
