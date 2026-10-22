@@ -13,10 +13,11 @@ Claude Code mods. · Claude Code 용 mod 모음.
 | [prompt-recap](mods/prompt-recap) | A pane beside the chat with your questions, what you added while Claude worked, and how each turn ended, plus the session at a glance (goal, what's happening now, what's waiting on you, next step) and the background agents at work. Press a question to jump back to it, an agent to watch it. |
 | [boot-console](mods/boot-console) | IntelliJ's Run tab for a Spring Boot app, in a pane: Run, Stop, Restart, Build, with the app's log live. Compiles what changed and starts the main class from the compiled classes, no jar. Profile, JVM options and JDK per project. |
 | [file-tree](mods/file-tree) | IntelliJ's Project view in a pane: your folders and files as a tree, names in git's colours. Press a file to edit it right there, Enter for a new line, Ctrl+S to save; an image or a document opens in its own app. |
+| [arcade](mods/arcade) | Games in a pane beside the chat (snake, Tetris, Doom, 2048, Minesweeper, Flappy, Pong, typing test, Space Invaders) that pause when Claude finishes a turn, and a pet that grows as Claude works. cc-arcade by Seza Akgün, moved into a pane. |
 
 ### Install
 
-Claude Code 2.1.287 or later. At the prompt of a session (`<mod>` is `prompt-recap`, `boot-console` or `file-tree`):
+Claude Code 2.1.287 or later. At the prompt of a session (`<mod>` is `prompt-recap`, `boot-console`, `file-tree` or `arcade`):
 
 ```
 /plugin install <mod> --marketplace jangjaeyong/drake-mods
@@ -183,6 +184,21 @@ The editor
 - Not in 0.1: selecting text, copy, find, syntax colours. Undo steps are lost when you go back to the tree.
 - Where a surface draws no editor of this kind (VS Code, the mobile app), the file shows read-only.
 
+### arcade
+
+[cc-arcade](https://github.com/sezaakgun/cc-arcade) by Seza Akgün (MIT), drawn in a pane beside the chat instead of above the prompt. Open it with `/arcade`.
+
+- `/arcade` opens the pane with the picker: `snake`, `tetris`, `doom`, `2048`, `minesweeper`, `flappy`, `pong`, `typing`, `invaders`, `pet`, and `random` or `auto` (a game for the moment). `/arcade <game>` starts one directly, `/arcade list` describes them with your best scores, `/arcade colorblind` gives Doom a palette that holds up without red against green, and `/arcade stop` or `close` closes the pane. `← games` goes back to the picker.
+- Click the board to play; Esc gives the keys back to the prompt. Each game's keys are in [cc-arcade's README](https://github.com/sezaakgun/cc-arcade#games).
+- When Claude finishes a turn the game pauses and says so, so you don't miss the reply. A subagent finishing does not pause it.
+- The pet grows as Claude runs tests, commits and edits. Only the counts are kept: a Bash command's text is checked for a test run or a commit and not stored.
+- No network, no files, no model calls. Best scores and the pet are kept in Claude Code's store for this plugin.
+
+#### Notes
+
+- The pane docks on the right, and the mouse works, in the fullscreen view (`"tui": "fullscreen"`). Each board sizes itself to the pane: a tall one suits Tetris and Doom.
+- What changed from cc-arcade 0.2.0: the pane; only the main turn's end pauses a game; `$.clock.now()` is awaited (on this Claude Code it answers a promise, which left the pet's mood and `auto`'s pick with no time); the tests run under `claude plugin test`. Scores and the pet start over, as each plugin keeps its own store.
+
 ---
 
 ## 한국어
@@ -192,10 +208,11 @@ The editor
 | [prompt-recap](mods/prompt-recap) | 내가 한 질문, 작업 중에 덧붙인 말, 턴 결과 요약에 더해 세션의 목표·지금 하는 일·나를 기다리는 것·다음 단계, 그리고 일하는 백그라운드 에이전트를 오른쪽 창에 모아 보여준다. 질문을 누르면 그 위치로, 에이전트를 누르면 그 에이전트 화면으로. |
 | [boot-console](mods/boot-console) | Spring Boot 앱용 IntelliJ Run 탭을 창으로: Run, Stop, Restart, Build 와 실시간 로그. jar 없이 바뀐 것만 컴파일하고 컴파일된 클래스에서 main 을 바로 실행한다. 프로필, JVM 옵션, JDK 를 프로젝트별로. |
 | [file-tree](mods/file-tree) | IntelliJ 의 Project 창을 창으로: 폴더와 파일을 트리로, 이름은 git 상태 색으로. 파일을 누르면 그 자리에서 편집한다. Enter 는 줄바꿈, Ctrl+S 는 저장. 이미지와 문서는 연결된 앱으로 연다. |
+| [arcade](mods/arcade) | 오른쪽 창에서 하는 게임(snake, Tetris, Doom, 2048, Minesweeper, Flappy, Pong, 타자 연습, Space Invaders). Claude 가 턴을 끝내면 멈추고, Claude 가 일하는 만큼 자라는 펫도 있다. Seza Akgün 의 cc-arcade 를 창으로 옮긴 것. |
 
 ### 설치
 
-Claude Code 2.1.287 이상. 세션 프롬프트에서(`<mod>` 는 `prompt-recap`, `boot-console`, `file-tree` 중 하나):
+Claude Code 2.1.287 이상. 세션 프롬프트에서(`<mod>` 는 `prompt-recap`, `boot-console`, `file-tree`, `arcade` 중 하나):
 
 ```
 /plugin install <mod> --marketplace jangjaeyong/drake-mods
@@ -362,6 +379,21 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 - 0.1 에 없는 것: 텍스트 선택, 복사, 찾기, 문법 색. 트리로 돌아가면 실행 취소 기록이 사라진다.
 - 이런 편집기를 그리지 못하는 화면(VS Code, 모바일 앱)에서는 읽기 전용으로 보인다.
 
+### arcade
+
+Seza Akgün 의 [cc-arcade](https://github.com/sezaakgun/cc-arcade)(MIT)를 입력창 위 대신 오른쪽 창에 그리도록 고친 것. `/arcade` 로 연다.
+
+- `/arcade` 는 게임 고르기 창을 연다: `snake`, `tetris`, `doom`, `2048`, `minesweeper`, `flappy`, `pong`, `typing`, `invaders`, `pet`, 그리고 `random`, `auto`(지금 하기 좋은 게임). `/arcade <게임>` 은 바로 시작, `/arcade list` 는 게임 설명과 최고 점수, `/arcade colorblind` 는 Doom 을 빨강·초록 구분 없이도 보이는 색으로, `/arcade stop` 이나 `close` 버튼은 창을 닫는다. `← games` 는 고르기로 돌아간다.
+- 게임 판을 클릭하면 플레이, Esc 로 입력창에 키보드를 돌려준다. 게임별 조작은 [cc-arcade README](https://github.com/sezaakgun/cc-arcade#games) 에.
+- Claude 가 턴을 끝내면 게임이 멈추고 알려준다. 그래서 답을 놓치지 않는다. 하위 에이전트가 끝날 때는 멈추지 않는다.
+- 펫은 Claude 가 테스트를 돌리고, 커밋하고, 파일을 고칠 때마다 자란다. 횟수만 남긴다: Bash 명령은 테스트·커밋인지만 보고 내용은 저장하지 않는다.
+- 네트워크, 파일, 모델 호출 없음. 최고 점수와 펫은 Claude Code 가 이 플러그인에 주는 저장소에 남는다.
+
+#### 참고
+
+- 오른쪽에 붙는 창과 마우스는 fullscreen 화면에서 된다(`"tui": "fullscreen"`). 게임 판은 창 크기에 맞춰 그려서, 세로로 긴 창이 Tetris·Doom 에 잘 맞는다.
+- cc-arcade 0.2.0 에서 바꾼 것: 오른쪽 창; 메인 턴이 끝날 때만 멈춤; `$.clock.now()` 를 await(이 Claude Code 에서는 Promise 를 돌려줘서 펫 기분과 `auto` 선택에 시간이 들어가지 않았다); 테스트를 `claude plugin test` 로 돌게. 플러그인마다 저장소가 따로라 점수와 펫은 새로 시작한다.
+
 ---
 
 ## Development · 개발
@@ -374,4 +406,4 @@ claude plugin test mods/<mod>
 
 ## License · 라이선스
 
-[MIT](LICENSE)
+[MIT](LICENSE). `mods/arcade` is based on cc-arcade © Seza Akgün, MIT ([its license](mods/arcade/LICENSE)). · `mods/arcade` 는 Seza Akgün 의 cc-arcade(MIT) 기반이다.

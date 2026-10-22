@@ -20,6 +20,12 @@
       "description": "Your project's folders and files as a tree in a pane beside the chat, as IntelliJ's Project view draws them, in git's colours. Press a folder to open it, a file to edit it right there (Enter for a new line, Ctrl+S to save), an image or a document to open it in its own app.",
       "version": "0.2.0",
       "source": "./mods/file-tree"
+    },
+    {
+      "name": "arcade",
+      "description": "Games in a pane beside the chat (snake, Tetris, Doom, 2048, Minesweeper, Flappy, Pong, typing test, Space Invaders) that pause when Claude finishes a turn, and a pet that grows as Claude tests, commits and edits. cc-arcade by Seza Akgün (MIT), moved from above the prompt into a pane.",
+      "version": "0.1.0",
+      "source": "./mods/arcade"
     }
   ]
 }

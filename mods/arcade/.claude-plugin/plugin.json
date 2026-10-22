@@ -1,0 +1,10 @@
+{
+  "name": "arcade",
+  "version": "0.1.0",
+  "description": "Games in a pane beside the chat (snake, Tetris, Doom, 2048, Minesweeper, Flappy, Pong, typing test, Space Invaders) that pause when Claude finishes a turn, and a pet that grows as Claude tests, commits and edits. cc-arcade by Seza Akgün (MIT), moved from above the prompt into a pane.",
+  "author": {
+    "name": "jangjaeyong",
+    "url": "https://github.com/jangjaeyong"
+  },
+  "license": "MIT"
+}
