@@ -12,10 +12,11 @@ Claude Code mods. · Claude Code 용 mod 모음.
 | --- | --- |
 | [prompt-recap](mods/prompt-recap) | A pane beside the chat with your questions, what you added while Claude worked, and how each turn ended, plus the session at a glance (goal, what's happening now, what's waiting on you, next step) and the background agents at work. Press a question to jump back to it, an agent to watch it. |
 | [boot-console](mods/boot-console) | IntelliJ's Run tab for a Spring Boot app, in a pane: Run, Stop, Restart, Build, with the app's log live. Compiles what changed and starts the main class from the compiled classes, no jar. Profile, JVM options and JDK per project. |
+| [file-tree](mods/file-tree) | IntelliJ's Project view in a pane: your folders and files as a tree, names in git's colours. Press a file to edit it right there, Enter for a new line, Ctrl+S to save. |
 
 ### Install
 
-Claude Code 2.1.287 or later. At the prompt of a session (`<mod>` is `prompt-recap` or `boot-console`):
+Claude Code 2.1.287 or later. At the prompt of a session (`<mod>` is `prompt-recap`, `boot-console` or `file-tree`):
 
 ```
 /plugin install <mod> --marketplace jangjaeyong/drake-mods
@@ -140,6 +141,47 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 - No debugger: for breakpoints, use your IDE.
 - If the first Run fails, the top of the log has the exact Gradle and java commands, and Gradle's error below them.
 
+### file-tree
+
+Open the pane with `/file-tree` (`/file-tree refresh` lists again). It works the same on any shell and OS: it reads folders through Claude Code itself, asks git for the branch and each file's state, and starts no editor of the OS.
+
+```
+[ Refresh ] [ Collapse all ] [ Editor: App.java ● ]
+╭─────────────────────────────────────────────╮
+│▾ 📂 demo  D:\work\demo  main                 │
+│  ▸ 📁 build                      (orange)    │
+│  ▾ 📂 src                                    │
+│    ☕ App.java ●                  (blue)      │
+│    🔧 application.yml                        │
+│    📝 notes.md                    (red)       │
+╰─────────────────────────────────────────────╯
+```
+
+The tree
+
+- The session's folder at the root, with where it is and the git branch. Folders first, then files, by name; `.git` left out. A folder opens or shuts on a press (a double click opens it once), and is read when it opens, so a big `node_modules` costs nothing until then.
+- Names in git's colours, as IntelliJ draws them: changed blue, added green, untracked red, ignored orange (`build`, `.gradle`, ...). Without git, no colours.
+- It follows Claude's edits and commands, and each turn's end; `Refresh` reads again any time. `Collapse all` shuts every folder.
+- Docked on the right, the buttons stay put and only the tree scrolls: the wheel, the arrows and PageUp/PageDown (with the pane focused), or the scrollbar on its right.
+
+The editor
+
+- Press a file (a double click does the same) and the editor takes the pane. `← Files` goes back to the tree, keeping what you typed; `Editor: <name>` comes back to it. A `●` marks unsaved changes, in the tree too.
+- Click the text to type there: Esc gives the keys back to the prompt. Enter breaks the line, keeping the indentation; Tab indents as the file does. Backspace, Delete, the arrows, Home/End (with Ctrl, the file's start and end), PageUp/PageDown, the wheel. Ctrl+Z undoes, Ctrl+Y redoes. Korean and other input methods type as anywhere.
+- Ctrl+S or `Save` saves. The file keeps the line ends (CRLF or LF) and the BOM it had; one that mixes them is saved with the kind most of its lines have.
+- `Paste` or Alt+V puts the clipboard's text at the cursor (read with PowerShell on Windows, `pbpaste` on macOS, `wl-paste`, `xclip` or `xsel` on Linux). On macOS, Option+V types `√` unless the terminal sends Option as Meta: use `Paste` there.
+- A terminal's own paste, whatever its key (Ctrl+V, Ctrl+Shift+V, Cmd+V, a right click), stays Claude Code's: the terminal hands it to the chat's prompt box whatever holds the keys, and the editor never takes it from there, so a paste meant for the chat never ends up in a file. The editor leaves Ctrl+V alone too.
+- Changed on disk since it was opened (Claude edited it, say): with nothing typed, the editor takes the new text; with unsaved changes, `Save` asks first, `Overwrite` or `Reload`.
+- `Revert` takes the file as on disk again. `Close` closes the editor; over unsaved changes it asks, and a second press discards them.
+
+#### Notes
+
+- The pane docks on the right, and the mouse works, in the fullscreen view (`"tui": "fullscreen"` in `~/.claude/settings.json`). In the classic view it sits above the prompt.
+- One file at a time: to open another, save or revert the one with changes.
+- UTF-8 text files up to about 80,000 characters (what a pane can hand its editor at once). A binary file, another encoding (EUC-KR, say) or a longer file is not opened, with a message, so it is never saved damaged. A paste that would take the text past it is refused, with a message.
+- Not in 0.1: selecting text, copy, find, syntax colours. Undo steps are lost when you go back to the tree.
+- Where a surface draws no editor of this kind (VS Code, the mobile app), the file shows read-only.
+
 ---
 
 ## 한국어
@@ -148,10 +190,11 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 | --- | --- |
 | [prompt-recap](mods/prompt-recap) | 내가 한 질문, 작업 중에 덧붙인 말, 턴 결과 요약에 더해 세션의 목표·지금 하는 일·나를 기다리는 것·다음 단계, 그리고 일하는 백그라운드 에이전트를 오른쪽 창에 모아 보여준다. 질문을 누르면 그 위치로, 에이전트를 누르면 그 에이전트 화면으로. |
 | [boot-console](mods/boot-console) | Spring Boot 앱용 IntelliJ Run 탭을 창으로: Run, Stop, Restart, Build 와 실시간 로그. jar 없이 바뀐 것만 컴파일하고 컴파일된 클래스에서 main 을 바로 실행한다. 프로필, JVM 옵션, JDK 를 프로젝트별로. |
+| [file-tree](mods/file-tree) | IntelliJ 의 Project 창을 창으로: 폴더와 파일을 트리로, 이름은 git 상태 색으로. 파일을 누르면 그 자리에서 편집한다. Enter 는 줄바꿈, Ctrl+S 는 저장. |
 
 ### 설치
 
-Claude Code 2.1.287 이상. 세션 프롬프트에서(`<mod>` 는 `prompt-recap` 또는 `boot-console`):
+Claude Code 2.1.287 이상. 세션 프롬프트에서(`<mod>` 는 `prompt-recap`, `boot-console`, `file-tree` 중 하나):
 
 ```
 /plugin install <mod> --marketplace jangjaeyong/drake-mods
@@ -275,6 +318,47 @@ $ C:/jdk-25/bin/java.exe -Dfile.encoding=UTF-8 ... @.../java.args --spring.profi
 - 활성 프로필을 값 하나로 읽는 앱도 있다: 잘 모르면 프로필은 하나로 띄운다.
 - 디버거 없음: 브레이크포인트는 IDE 에서.
 - 첫 Run 이 실패하면 로그 맨 위에 실제 Gradle·java 명령이, 그 아래 Gradle 에러가 있다.
+
+### file-tree
+
+`/file-tree` 로 창을 연다(`/file-tree refresh` 는 다시 읽기). 셸이나 OS 와 무관하게 동작한다: 폴더는 Claude Code 를 통해 읽고, 브랜치와 파일 상태는 git 에 묻고, OS 의 편집기는 띄우지 않는다.
+
+```
+[ Refresh ] [ Collapse all ] [ Editor: App.java ● ]
+╭─────────────────────────────────────────────╮
+│▾ 📂 demo  D:\work\demo  main                 │
+│  ▸ 📁 build                      (주황)       │
+│  ▾ 📂 src                                    │
+│    ☕ App.java ●                  (파랑)       │
+│    🔧 application.yml                        │
+│    📝 notes.md                    (빨강)       │
+╰─────────────────────────────────────────────╯
+```
+
+트리
+
+- 맨 위는 세션 폴더: 경로와 git 브랜치가 함께 나온다. 폴더가 먼저, 그다음 파일, 이름순. `.git` 은 숨긴다. 폴더는 누르면 펼치고 다시 누르면 접는다(더블클릭은 한 번만 펼친다). 펼칠 때 읽으므로 큰 `node_modules` 도 펼치기 전엔 부담이 없다.
+- IntelliJ 처럼 이름에 git 상태 색: 수정 파랑, 추가 초록, untracked 빨강, ignored 주황(`build`, `.gradle` 등). git 이 없으면 색 없음.
+- Claude 의 편집·명령과 턴이 끝날 때마다 다시 읽는다. `Refresh` 로 언제든 다시 읽고, `Collapse all` 로 모두 접는다.
+- 오른쪽에 붙은 창에서는 버튼이 고정되고 트리만 스크롤된다: 휠, 화살표, PageUp/PageDown(창에 포커스가 있을 때), 또는 오른쪽 스크롤바.
+
+편집기
+
+- 파일을 누르면(더블클릭도 같다) 편집기가 창을 채운다. `← Files` 로 트리로 돌아가도 입력한 내용은 남고, `Editor: <이름>` 으로 다시 돌아온다. 저장 안 한 변경은 `●` 로, 트리에도 표시된다.
+- 글자를 클릭하면 그 자리에서 입력한다. Esc 로 입력창에 키보드를 돌려준다. Enter 는 줄바꿈(들여쓰기 유지), Tab 은 파일의 들여쓰기대로. Backspace, Delete, 화살표, Home/End(Ctrl 과 함께면 파일 처음·끝), PageUp/PageDown, 휠. Ctrl+Z 실행 취소, Ctrl+Y 다시 실행. 한글 등 입력기도 그대로.
+- Ctrl+S 또는 `Save` 로 저장. 파일의 줄 끝(CRLF/LF)과 BOM 은 원래대로 유지한다. 둘이 섞인 파일은 더 많은 쪽으로 맞춰 저장한다.
+- `Paste` 또는 Alt+V 로 클립보드의 텍스트를 커서 위치에 넣는다(Windows 는 PowerShell, macOS 는 `pbpaste`, Linux 는 `wl-paste`·`xclip`·`xsel` 로 읽는다). macOS 에서는 터미널이 Option 을 Meta 로 보내도록 설정하지 않으면 Option+V 가 `√` 를 입력하므로 `Paste` 버튼을 쓴다.
+- 터미널 자체의 붙여넣기는 키가 무엇이든(Ctrl+V, Ctrl+Shift+V, Cmd+V, 오른쪽 클릭) Claude Code 그대로다: 키보드가 어디 있든 터미널이 채팅 입력창으로 붙여넣고, 편집기는 거기서 가져오지 않는다. 그래서 채팅에 붙여넣으려던 내용이 파일에 들어가는 일이 없다. 편집기는 Ctrl+V 도 쓰지 않는다.
+- 연 뒤에 디스크에서 바뀌었으면(예: Claude 가 고침): 입력한 게 없으면 새 내용을 다시 읽고, 저장 안 한 변경이 있으면 `Save` 가 먼저 묻는다(`Overwrite` 또는 `Reload`).
+- `Revert` 는 디스크의 내용으로 되돌린다. `Close` 는 편집기를 닫는다. 저장 안 한 변경이 있으면 묻고, 한 번 더 누르면 버린다.
+
+#### 참고
+
+- 오른쪽에 붙는 창과 마우스는 fullscreen 화면에서 된다(`~/.claude/settings.json` 에 `"tui": "fullscreen"`). 기본 화면에서는 입력창 위에 붙는다.
+- 한 번에 파일 하나: 다른 파일을 열려면 변경 중인 파일을 저장하거나 Revert 한다.
+- UTF-8 텍스트, 약 8만 자까지(창이 편집기에 한 번에 넘길 수 있는 크기). 바이너리, 다른 인코딩(EUC-KR 등), 더 긴 파일은 열지 않고 알려준다. 그래서 깨진 채 저장되는 일이 없다. 붙여넣으면 이 크기를 넘는 경우엔 붙여넣지 않고 알려준다.
+- 0.1 에 없는 것: 텍스트 선택, 복사, 찾기, 문법 색. 트리로 돌아가면 실행 취소 기록이 사라진다.
+- 이런 편집기를 그리지 못하는 화면(VS Code, 모바일 앱)에서는 읽기 전용으로 보인다.
 
 ---
 

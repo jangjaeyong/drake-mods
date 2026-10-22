@@ -1,0 +1,10 @@
+{
+  "name": "file-tree",
+  "version": "0.1.0",
+  "description": "Your project's folders and files as a tree in a pane beside the chat, as IntelliJ's Project view draws them, in git's colours. Press a folder to open it, a file to edit it right there: Enter for a new line, Ctrl+S to save.",
+  "author": {
+    "name": "jangjaeyong",
+    "url": "https://github.com/jangjaeyong"
+  },
+  "types": "./types/index.d.ts"
+}

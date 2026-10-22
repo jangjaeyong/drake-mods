@@ -14,6 +14,12 @@
       "description": "Build and run a Spring Boot app the way IntelliJ's Run does (compile what changed, start its main class from the compiled classes), with its log live in a pane beside the chat. Run, Stop, Restart, Build; profile, JVM options and JDK per project.",
       "version": "0.2.3",
       "source": "./mods/boot-console"
+    },
+    {
+      "name": "file-tree",
+      "description": "Your project's folders and files as a tree in a pane beside the chat, as IntelliJ's Project view draws them, in git's colours. Press a folder to open it, a file to edit it right there: Enter for a new line, Ctrl+S to save.",
+      "version": "0.1.0",
+      "source": "./mods/file-tree"
     }
   ]
 }
