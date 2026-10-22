@@ -369,3 +369,7 @@ claude --plugin-dir mods/<mod>
 claude plugin validate mods/<mod>
 claude plugin test mods/<mod>
 ```
+
+## License · 라이선스
+
+[MIT](LICENSE)
